@@ -1,0 +1,349 @@
+===========================================================================
+LAGRANGIAN DUALITY — a primer from the ML point of view (via the SVM)
+===========================================================================
+
+Why this file exists
+--------------------
+The other note ("Strong Duality & Complementary Slackness") kept saying "you
+already know this from SVMs." If you don't, this fills the gap. We build
+Lagrangian duality from scratch and land exactly on the hard-margin SVM dual,
+because the SVM is the cleanest place in ML where this machinery actually
+*pays off* (it's what makes the kernel trick possible).
+
+Roadmap:
+  1. The problem shape and the trick (penalty -> multiplier).
+  2. The Lagrangian and its min-max / max-min duality.
+  3. Weak duality, duality gap, and when strong duality holds (KKT).
+  4. Complementary slackness in words.
+  5. The hard-margin SVM, primal -> dual, fully.
+  6. What the dual BUYS you: support vectors + the kernel trick.
+  7. Soft margin (the C version) in one breath.
+  8. Mental-model cheat sheet + traps.
+
+
+---------------------------------------------------------------------------
+1. THE SETUP AND THE CORE TRICK
+---------------------------------------------------------------------------
+
+Constrained optimization problem (minimization):
+
+      min_x   f(x)
+      s.t.    g_i(x) <= 0,     i = 1..m      (inequality constraints)
+              h_j(x) = 0,      j = 1..p      (equality constraints)
+
+The problem: you can't just set gradient = 0, because the unconstrained minimum
+may violate the constraints. You need a way to account for constraints that
+doesn't require case-by-case "is this constraint active?" bookkeeping.
+
+The trick: turn each constraint into a PRICE (a penalty term) and add it to the
+objective. Instead of a hard wall, you pay a per-unit cost for the constraint,
+with the "price" being a new variable you get to choose. Those prices are the
+LAGRANGE MULTIPLIERS.
+
+Intuition from ML: this is the same move as turning a hard constraint
+"||w|| <= B" into a soft penalty "+ lambda ||w||^2" (ridge / weight decay).
+Lagrangian duality is the principled, two-sided version of that move.
+
+
+---------------------------------------------------------------------------
+2. THE LAGRANGIAN AND THE MIN-MAX VIEW
+---------------------------------------------------------------------------
+
+Define the LAGRANGIAN by attaching a multiplier to each constraint:
+
+      L(x, alpha, nu) = f(x) + sum_i alpha_i g_i(x) + sum_j nu_j h_j(x)
+
+      alpha_i >= 0     (multipliers for inequalities — SIGN-CONSTRAINED)
+      nu_j    free      (multipliers for equalities — any sign)
+
+Key fact — the Lagrangian recovers the original problem as an INNER MAX:
+
+      max_{alpha>=0, nu}  L(x, alpha, nu)  =  f(x)   IF x is feasible
+                                           =  +inf   IF x is infeasible
+
+Why: if some g_i(x) > 0 (violated), push alpha_i -> +inf and the term blows up
+to +inf. If some h_j(x) != 0, push nu_j to the matching sign -> +inf. If x is
+feasible, every g_i(x) <= 0 so the best alpha can do is set those terms to 0
+(it won't pay to make them negative since alpha>=0 and g<=0 gives <=0 terms it
+wants to maximize -> drives them to 0), and equality terms are 0 anyway.
+
+So the ORIGINAL (PRIMAL) problem is a min-of-max:
+
+      p* = min_x  max_{alpha>=0, nu}  L(x, alpha, nu)
+
+The DUAL just swaps the order — max-of-min:
+
+      Define the DUAL FUNCTION:  d(alpha, nu) = min_x L(x, alpha, nu)
+      DUAL PROBLEM:  d* = max_{alpha>=0, nu}  d(alpha, nu)
+
+Two things to notice about the dual function d(alpha, nu):
+  - It is a pointwise minimum of functions that are LINEAR in (alpha, nu),
+    hence d is always CONCAVE — even when the primal f, g are ugly. So the dual
+    is ALWAYS a concave maximization (a "nice" problem) regardless of the
+    primal. That's half the reason duals are attractive.
+  - Evaluating d means solving an UNCONSTRAINED min over x (often closed-form).
+
+
+---------------------------------------------------------------------------
+3. WEAK DUALITY, THE GAP, AND STRONG DUALITY (KKT)
+---------------------------------------------------------------------------
+
+WEAK DUALITY (always, no assumptions):   d* <= p*
+Reason: "max-min <= min-max" is a general inequality. Concretely, for any
+feasible x and any (alpha>=0, nu):  d(alpha,nu) = min_x' L(x',.) <= L(x,.)
+<= f(x) (since penalty terms are <= 0 at feasible x). Take best of each side.
+
+DUALITY GAP = p* - d* >= 0.
+
+STRONG DUALITY: gap = 0, i.e. d* = p*. This does NOT hold in general. For
+CONVEX primals it holds under a CONSTRAINT QUALIFICATION, the usual one being
+SLATER'S CONDITION: there exists a strictly feasible point (some x with all
+g_i(x) < 0 strictly; affine constraints get a pass). Convex + Slater => strong
+duality.
+
+(Contrast with the other note: plain LP needs no Slater — feasible+bounded is
+enough. SVMs are convex QPs with affine constraints, so strong duality holds.)
+
+When strong duality holds, the optimal (x*, alpha*, nu*) satisfy the KKT
+CONDITIONS — the master checklist:
+
+  (1) Stationarity:        grad_x L(x*, alpha*, nu*) = 0
+  (2) Primal feasibility:  g_i(x*) <= 0,  h_j(x*) = 0
+  (3) Dual feasibility:    alpha_i* >= 0
+  (4) Complementary slack: alpha_i* * g_i(x*) = 0   for every i
+
+For convex problems, KKT is both necessary AND sufficient for optimality. This
+is the "verify without re-solving" certificate from the other note, in its
+general (nonlinear) form.
+
+
+---------------------------------------------------------------------------
+4. COMPLEMENTARY SLACKNESS IN WORDS
+---------------------------------------------------------------------------
+
+Condition (4), alpha_i* * g_i(x*) = 0, is a product of two nonnegative-ish
+pieces forced to zero. For each constraint i, at least one of these holds:
+
+   - alpha_i* = 0   (the constraint's price is zero), OR
+   - g_i(x*) = 0    (the constraint is ACTIVE / tight / binding)
+
+Readings:
+   - If a constraint is SLACK (g_i(x*) < 0, strictly satisfied) then its
+     multiplier MUST be zero. Inactive constraints exert no force.
+   - If a multiplier is POSITIVE (alpha_i* > 0) then its constraint MUST be
+     binding. Only binding constraints carry a positive price.
+   - CAUTION (the classic trap): "binding" does NOT force alpha_i* > 0. A
+     binding constraint can still have a zero multiplier (degeneracy).
+
+This is the single most useful idea for the SVM, as we'll now see: it's what
+makes most training points IRRELEVANT to the final model.
+
+
+---------------------------------------------------------------------------
+4b. WORKED EXAMPLE ON THE RUNNING 2-VARIABLE LP (concrete before the SVM)
+---------------------------------------------------------------------------
+
+Before the SVM (which needs many variables — see the note at the end of this
+section), run sections 1-4 on the shared Two-Source Power LP so you can see the
+Lagrangian, the min-max, stationarity, and complementary slackness on 2 numbers
+you can plot. Recap of the model (full definition + plot in "LP & Convexity"):
+
+      min   30 x1 + 55 x2
+      s.t.  (D)  x1 + x2 >= 100      (F)  x1 + x2 <= 120      (S)  x1 <= 70
+            x1, x2 >= 0
+      Known optimum from the plot:  x* = (70, 30), cost* = 3750.
+
+STEP 1 — put constraints in the g(x) <= 0 form and attach multipliers (sec 1-2):
+
+      g_D(x) = 100 - x1 - x2 <= 0      alpha_D >= 0
+      g_F(x) = x1 + x2 - 120 <= 0      alpha_F >= 0
+      g_S(x) = x1 - 70       <= 0      alpha_S >= 0
+      (sign constraints x1,x2 >= 0 carry their own multipliers mu1, mu2 >= 0)
+
+STEP 2 — the Lagrangian (price every constraint, fold into the objective):
+
+   L = 30 x1 + 55 x2
+       + alpha_D(100 - x1 - x2) + alpha_F(x1 + x2 - 120) + alpha_S(x1 - 70)
+       - mu1 x1 - mu2 x2
+
+The primal is min_x max_{alpha,mu >= 0} L (the inner max returns +inf on any
+violated constraint, 30x1+55x2 when feasible — exactly the mechanism of sec 2).
+
+STEP 3 — stationarity, grad_x L = 0 (sec 3, condition 1):
+
+      dL/dx1:  30 - alpha_D + alpha_F + alpha_S - mu1 = 0
+      dL/dx2:  55 - alpha_D + alpha_F           - mu2 = 0
+
+STEP 4 — use complementary slackness (sec 4) to pin the multipliers. At the known
+optimum x* = (70, 30):
+   - x1 > 0 and x2 > 0  => mu1 = mu2 = 0  (slack sign constraints -> zero price).
+   - (F) is slack (70+30 = 100 < 120)     => alpha_F = 0.
+   - (D) and (S) are binding (active), so their multipliers are free to be > 0.
+   Plug into stationarity:
+      dL/dx2:  55 - alpha_D + 0 - 0 = 0   =>  alpha_D = 55
+      dL/dx1:  30 - 55 + 0 + alpha_S - 0 = 0  =>  alpha_S = 25
+
+   Verify the full KKT checklist:
+      (1) stationarity: holds by construction above.
+      (2) primal feasibility: (70,30) satisfies D,F,S and x>=0. ok.
+      (3) dual feasibility: alpha_D,alpha_F,alpha_S = 55,0,25 all >= 0. ok.
+      (4) comp. slackness: alpha_F*g_F = 0 (alpha_F=0), alpha_D*g_D = 55*0 = 0,
+          alpha_S*g_S = 25*0 = 0. ok.
+   All four hold and the problem is convex => (70,30) is certified optimal, and
+   (alpha_D, alpha_S) = (55, 25) are exactly the shadow prices the duality note
+   found. Same numbers, reached through the general KKT machinery.
+
+The ML analogy to carry into the SVM below: the ACTIVE constraints (D and S,
+alpha > 0) are the analogue of SUPPORT VECTORS; the SLACK constraint (F, alpha=0)
+is the analogue of a non-support training point that could be deleted without
+changing the answer. Complementary slackness is the single rule behind both.
+
+NOTE — why the SVM example that follows is NOT 2 variables. The SVM optimizes
+over the weight vector w (dimension = number of features) and a bias b, with ONE
+constraint PER training point, so even a small SVM has far more than 2 decision
+variables and does not reduce to a plane you can plot. We switch to it anyway
+because it is the cleanest place where going to the dual actually PAYS OFF
+(support-vector sparsity + the kernel trick) — things this little 2-var LP is too
+small to exhibit. The machinery (Lagrangian, min-max, KKT, CS) is identical to
+what you just did above; only the dimension grows.
+
+
+---------------------------------------------------------------------------
+5. THE HARD-MARGIN SVM: PRIMAL -> DUAL, FULLY
+---------------------------------------------------------------------------
+
+Data: (x_i, y_i), i=1..n, with labels y_i in {-1, +1}, assumed linearly
+separable. We want the max-margin separating hyperplane w^T x + b = 0.
+
+PRIMAL (convex QP):
+      min_{w,b}   (1/2) ||w||^2
+      s.t.        y_i (w^T x_i + b) >= 1,    for all i
+
+Interpretation: the margin width is 2/||w||, so minimizing ||w||^2 MAXIMIZES
+the margin; the constraints say every point is on the correct side by at least
+a unit of (unnormalized) margin.
+
+Put it in standard form g_i <= 0:   g_i(w,b) = 1 - y_i (w^T x_i + b) <= 0.
+
+LAGRANGIAN (one multiplier alpha_i >= 0 per data point):
+
+   L(w, b, alpha) = (1/2)||w||^2 + sum_i alpha_i [ 1 - y_i (w^T x_i + b) ]
+
+STATIONARITY — minimize over w, b (set gradients to 0):
+
+   dL/dw = w - sum_i alpha_i y_i x_i = 0
+        =>  w* = sum_i alpha_i y_i x_i        (*** key equation ***)
+
+   dL/db = - sum_i alpha_i y_i = 0
+        =>  sum_i alpha_i y_i = 0             (a linear constraint on alpha)
+
+Two huge facts fall out of that first equation:
+   - The optimal weight vector is a LINEAR COMBINATION OF THE DATA POINTS,
+     weighted by alpha_i y_i. You never need w explicitly if you can compute
+     dot products.
+   - Combined with complementary slackness (next), only a few alpha_i are
+     nonzero, so w* is a combination of just those points.
+
+Substitute w* back into L to get the DUAL FUNCTION (algebra: the ||w||^2 and
+cross terms combine into a single double sum, the b-term vanishes via
+sum alpha_i y_i = 0). Result — the SVM DUAL:
+
+      max_alpha   sum_i alpha_i  -  (1/2) sum_i sum_k alpha_i alpha_k y_i y_k (x_i . x_k)
+      s.t.        alpha_i >= 0
+                  sum_i alpha_i y_i = 0
+
+This is a concave quadratic maximization in alpha alone — no w, no b. Solve it
+(any QP solver, or SMO), get alpha*, then reconstruct:
+      w* = sum_i alpha_i* y_i x_i
+      b*  from any point with alpha_i* > 0 using y_i(w*^T x_i + b*) = 1.
+
+
+---------------------------------------------------------------------------
+6. WHAT THE DUAL BUYS YOU  (the payoff — this is the whole point)
+---------------------------------------------------------------------------
+
+(A) SUPPORT VECTORS come straight from complementary slackness.
+    CS here says:   alpha_i* * [ 1 - y_i (w*^T x_i + b*) ] = 0.
+       - If a point is strictly inside the correct side (margin slack,
+         y_i(w^T x_i+b) > 1), then alpha_i* = 0 -> it does NOT contribute to w*.
+       - Only points EXACTLY on the margin (y_i(w^T x_i+b) = 1) can have
+         alpha_i* > 0. These are the SUPPORT VECTORS.
+    Consequence: the final classifier depends ONLY on a handful of boundary
+    points. Delete every other training point and you'd get the same model.
+    That's complementary slackness doing real ML work.
+
+(B) THE KERNEL TRICK is possible ONLY because the dual uses data via DOT
+    PRODUCTS (x_i . x_k) and nothing else. Replace every dot product with a
+    kernel K(x_i, x_k) = phi(x_i) . phi(x_k) and you are implicitly training in
+    a high- (even infinite-) dimensional feature space phi WITHOUT ever forming
+    phi(x). The primal, written in terms of w, cannot do this — w would live in
+    that infinite space. The DUAL sidesteps w entirely.
+       Prediction also stays kernelized:
+          f(x) = sign( sum_i alpha_i* y_i K(x_i, x) + b* )
+       — again only kernels against the (few) support vectors.
+
+So the practical reasons to ever go to the dual, in ML terms:
+   - Fewer effective variables when n < dimension (dual has n vars; primal has
+     d+1). For kernels, d is effectively infinite, so the dual is the only
+     option.
+   - Sparsity in alpha (support vectors) = a compact model + fast inference.
+   - A clean optimality certificate via KKT.
+
+
+---------------------------------------------------------------------------
+7. SOFT-MARGIN SVM IN ONE BREATH (the C version you see in practice)
+---------------------------------------------------------------------------
+
+Real data isn't separable, so add slack variables xi_i >= 0 and a penalty C:
+
+   PRIMAL:
+      min_{w,b,xi}  (1/2)||w||^2 + C sum_i xi_i
+      s.t.          y_i(w^T x_i + b) >= 1 - xi_i,   xi_i >= 0
+
+   DUAL (the only thing that changes vs hard margin is a BOX on alpha):
+      max_alpha   sum_i alpha_i - (1/2) sum_i sum_k alpha_i alpha_k y_i y_k K(x_i,x_k)
+      s.t.        0 <= alpha_i <= C,    sum_i alpha_i y_i = 0
+
+C is the regularization knob: large C = punish misclassification hard (low bias,
+high variance); small C = wider margin, tolerate more violations. The upper
+bound C on alpha_i is exactly the multiplier from the xi_i >= 0 / penalty
+interaction, via the same KKT machinery.
+
+
+---------------------------------------------------------------------------
+8. CHEAT SHEET + TRAPS
+---------------------------------------------------------------------------
+
+Mental model in one paragraph:
+  Attach a nonnegative price (multiplier) to each constraint, fold it into the
+  objective to form the Lagrangian. The primal is min-over-x of max-over-prices;
+  the dual flips it to max-over-prices of min-over-x. The dual is always concave
+  and gives a lower bound (weak duality). For convex problems with Slater, the
+  bound is tight (strong duality) and KKT certifies optimality. Complementary
+  slackness ties "active constraint" to "nonzero price," which in the SVM means
+  "only margin points matter" (support vectors) and lets everything run on dot
+  products (kernels).
+
+Dictionary (ML term <-> duality term):
+   weight decay / ridge penalty   ~  a fixed-multiplier Lagrangian relaxation
+   support vectors                ~  constraints with alpha_i > 0 (active)
+   non-support points             ~  constraints with slack, alpha_i = 0
+   kernel trick                   ~  dual depends only on dot products
+   C in soft-margin SVM           ~  box upper bound on the multipliers
+
+Traps:
+  T1. alpha_i >= 0 for INEQUALITIES; nu_j is FREE (any sign) for EQUALITIES.
+      Mixing these up is the most common sign error.
+  T2. Weak duality is free; STRONG duality needs convex + a constraint
+      qualification (Slater). Don't claim zero gap for a nonconvex primal.
+  T3. Complementary slackness is NOT "binding <=> alpha>0." Only
+      "alpha>0 => binding" and "slack => alpha=0" are safe. Binding-with-zero-
+      multiplier happens (degeneracy).
+  T4. The dual function is concave ALWAYS (pointwise min of linear-in-multiplier
+      functions) — even for a nonconvex primal. People wrongly think the dual is
+      only concave when the primal is convex.
+  T5. You reconstruct w* from alpha*, but b* needs a support vector (a point
+      with 0 < alpha_i (< C for soft margin)) to pin it down — forgetting this
+      is a classic implementation bug.
+
+===========================================================================

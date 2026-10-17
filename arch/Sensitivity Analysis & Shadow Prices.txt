@@ -1,0 +1,306 @@
+===========================================================================
+LP / MILP SENSITIVITY ANALYSIS & SHADOW PRICES — a business-translation guide
+===========================================================================
+
+Prerequisites (and what's NOT repeated here)
+--------------------------------------------
+This note assumes the two earlier files:
+  - "Strong Duality & Complementary Slackness.txt" — what a dual value IS, weak
+    vs strong duality, complementary slackness, the certificate idea.
+  - "Lagrangian Duality Primer (ML).txt" — multipliers as prices, KKT.
+
+So the DEFINITION of a shadow price (= optimal dual variable y_i* =
+d(optimal objective)/d(b_i)) and complementary slackness are already covered —
+I won't re-derive them. The ONE genuinely new prerequisite needed here that the
+earlier notes only gestured at is the concept of a "BASIS" and why ranges
+exist, so that gets a short primer below. Everything else is new material:
+RHS ranging, reduced costs as a decision tool, objective-coefficient ranging,
+the MILP caveat, a worked energy example, and dashboard presentation.
+
+
+---------------------------------------------------------------------------
+0. MINI-PRIMER: THE BASIS (the one new prerequisite)
+---------------------------------------------------------------------------
+
+An LP optimum sits at a CORNER (vertex) of the feasible polytope. At a corner,
+a specific SET of constraints is "binding" (holds with equality). That active
+set is encoded by the BASIS — loosely, which variables are "in" (nonzero,
+basic) and which are "out" (zero, non-basic).
+
+The single most important fact for all of sensitivity analysis:
+
+   Shadow prices and reduced costs are CONSTANT only as long as the OPTIMAL
+   BASIS does not change. The "valid ranges" you'll compute are precisely the
+   intervals over which that same corner stays optimal.
+
+Push a parameter past the end of its range and the optimal corner jumps to a
+different vertex — a different set of constraints binds, and the shadow
+prices/reduced costs take new values. That's why every sensitivity number comes
+WITH a range; the number without its range is a half-truth.
+
+
+---------------------------------------------------------------------------
+1. SHADOW PRICE (DUAL VALUE) — the business meaning
+---------------------------------------------------------------------------
+
+Shadow price of a constraint = the change in the optimal objective per one-unit
+relaxation of that constraint's right-hand side (RHS), holding everything else
+fixed, WHILE THE BASIS HOLDS.
+
+      y_i*  =  d(optimal objective) / d(b_i)
+
+Business one-liner: "the most you'd rationally pay for one more unit of this
+limited resource" (or the savings from needing one less unit of a requirement).
+
+Sign/meaning rules of thumb:
+  - A BINDING constraint can have a non-zero shadow price. A NON-BINDING
+    (slack) constraint has shadow price 0 — you already have surplus, so one
+    more unit is worth nothing. (This is complementary slackness, from the
+    earlier note.)
+  - For a cost-MINIMIZATION energy model:
+       * A capacity/supply UPPER-BOUND constraint that binds -> non-zero shadow
+         price = the marginal cost reduction you'd get from one more unit of
+         capacity. Equivalently, the marginal cost that capacity scarcity is
+         imposing on you right now.
+       * A demand/requirement LOWER-BOUND constraint that binds -> shadow price
+         = marginal cost of serving one more unit of required demand.
+
+
+---------------------------------------------------------------------------
+2. RHS RANGING  (the valid range of a shadow price)
+---------------------------------------------------------------------------
+
+RHS ranging answers: "over what range of this constraint's RHS does the shadow
+price stay the SAME (basis unchanged)?"
+
+   - Report it as:  b_i can move in [b_i - down, b_i + up] and y_i* is constant.
+   - Inside the range: objective changes LINEARLY at rate y_i* per unit.
+         new_objective ≈ old_objective + y_i* * (delta b_i)
+   - At the edges of the range: a different constraint becomes binding; beyond
+     it, y_i* changes (usually the marginal value drops as you add more of a
+     resource — diminishing returns, a decreasing step function).
+
+Why a business user MUST see the range, not just the price:
+   "+1 MW of capacity saves $40/MW" is only true up to, say, +15 MW. Telling a
+   stakeholder "buy 200 MW because each saves $40" when the range ends at +15 MW
+   is the #1 way sensitivity analysis gets misused. Past the range the next MW
+   might save only $12, or nothing.
+
+
+---------------------------------------------------------------------------
+3. REDUCED COSTS  (for the DECISION VARIABLES / activities)
+---------------------------------------------------------------------------
+
+Where shadow prices are about CONSTRAINTS, reduced costs are about VARIABLES
+(activities/options) — especially ones currently NOT used (at value 0).
+
+Reduced cost of a variable x_j (in a min problem):
+      rc_j = c_j - (A^T y*)_j
+           = its direct cost  minus  the value of the resources it would free/use,
+             priced at the shadow prices.
+
+Readings:
+   - If x_j > 0 in the optimum (activity is used), its reduced cost is 0
+     (complementary slackness again).
+   - If x_j = 0 (activity NOT used), rc_j >= 0 for a min problem. That rc_j is:
+        "how much cheaper this option's cost c_j would have to become before it
+        enters the optimal mix." i.e. the penalty per unit for forcing it in.
+   - Business translation: "This generation source / cooling option is unused.
+     It would need to get $X/unit cheaper (or the right price signal) before the
+     optimizer would start using it."
+
+OBJECTIVE-COEFFICIENT RANGING is the companion (section 4), and reduced cost is
+exactly the amount by which a zero-variable's cost can drop before it enters.
+
+
+---------------------------------------------------------------------------
+4. OBJECTIVE-COEFFICIENT RANGING
+---------------------------------------------------------------------------
+
+Answers: "how much can a cost/price coefficient c_j in the objective change
+before the OPTIMAL SOLUTION (the chosen mix x*) changes?"
+
+   - For a BASIC variable (currently used, x_j > 0): there's a range
+     [c_j - down, c_j + up] within which the SAME solution x* stays optimal.
+     The objective VALUE changes (you're paying a different price for the same
+     plan), but WHAT you do doesn't change until c_j leaves the range.
+   - For a NON-BASIC variable (x_j = 0): it can rise arbitrarily (stays unused)
+     and can fall by exactly its reduced cost before it would enter the mix.
+
+Business use: robustness check. "Our plan stays optimal as long as gas price
+stays between $A and $B/MWh. Only outside that band do we re-optimize." This is
+how you tell a stakeholder whether a decision is stable against price
+assumptions WITHOUT re-running the model for every scenario.
+
+Caveats shared by all ranges above:
+   - Ranges are typically "one-at-a-time" (ceteris paribus). Changing TWO
+     parameters together can invalidate both ranges (the 100% rule gives a
+     partial joint guarantee, but don't assume independence).
+   - Under DEGENERACY, shadow prices can be non-unique and ranges can collapse
+     to zero width (left/right derivatives differ). Flag degeneracy if present.
+
+
+---------------------------------------------------------------------------
+5. THE MILP CAVEAT  (important for your energy model)
+---------------------------------------------------------------------------
+
+If your model has INTEGER or BINARY variables (unit commitment on/off, "build
+this plant or not", discrete equipment counts), it is a MILP, not an LP. Then:
+
+   - There is NO clean, reliable duality theory. The usual "shadow prices" come
+     from the LP RELAXATION (integrality dropped) or from the LP solved at the
+     final branch-and-bound node. These are NOT trustworthy marginal values for
+     the MILP:
+        * The true MILP value function is a STEP function in the RHS — not
+          smooth, not convex — so a single local "derivative" is misleading.
+        * Relaxing a capacity by 1 unit might do nothing until a discrete
+          threshold flips, then cause a large jump. The LP-relaxation shadow
+          price captures neither behavior.
+        * There can be a nonzero integrality gap, so complementary-slackness
+          certificates don't hold for the integer solution.
+
+   - WHAT TO DO INSTEAD for MILP sensitivity:
+        1. SCENARIO RE-SOLVES: re-run the MILP with b_i -> b_i +/- delta and
+           report the ACTUAL objective change. This is the honest answer.
+        2. Report the LP-relaxation duals ONLY as a rough directional hint,
+           clearly LABELED "approximate / LP relaxation, not exact for integer
+           decisions."
+        3. If a specific "what's one more MW worth" question matters, solve the
+           two MILPs and quote the real delta plus the range you tested.
+
+   - Rule for the dashboard: never present MILP shadow prices with the same
+     confidence as LP ones. Mark them, or replace them with scenario deltas.
+
+
+---------------------------------------------------------------------------
+6. WORKED EXAMPLE  (energy demand optimization, LP)
+---------------------------------------------------------------------------
+
+Tiny model for one representative hour of a data-center-style load. We choose
+how much IT load to serve from two power sources to meet demand at least cost,
+subject to capacity and a PUE (cooling overhead) relationship.
+
+Decision variables (MW of IT power drawn):
+   x1 = power from Source 1 (cheap, limited),  cost c1 = $30/MWh
+   x2 = power from Source 2 (expensive, plentiful), cost c2 = $55/MWh
+
+Facts:
+   - PUE = 1.25 means every 1 MW of IT load requires 1.25 MW of total facility
+     power (25% cooling/overhead). So total facility draw = 1.25 (x1 + x2).
+   - Hourly IT demand that MUST be met: x1 + x2 >= 100 MW.
+   - Facility power capacity (grid connection) limit: 1.25 (x1 + x2) <= 150 MW
+     of total draw  ->  x1 + x2 <= 120 MW of IT.
+   - Source 1 capacity: x1 <= 70 MW.
+
+MODEL (minimize cost):
+   min  30 x1 + 55 x2
+   s.t. (D) x1 + x2 >= 100        (hourly demand — must serve)   [dual y_D]
+        (F) x1 + x2 <= 120        (facility/PUE capacity)        [dual y_F]
+        (S) x1      <= 70         (Source 1 capacity)            [dual y_S]
+        x1, x2 >= 0
+
+This is the SHARED RUNNING EXAMPLE used across all these OR notes (defined and
+plotted in "LP & Convexity Basics...", dual certified in "Strong Duality &
+Complementary Slackness"). The same numbers (x*=(70,30), cost 3750, duals
+y_D=55, y_S=25, y_F=0) reappear here — now we squeeze the SENSITIVITY story
+(ranges, reduced costs) out of them. Feasible region, for reference:
+
+   x2
+    ^
+120 B(0,120)._                     corners: A(0,100) B(0,120) C(70,50) D(70,30)
+    |   \     ``._ C(70,50)        optimum  D = (70,30), cost 3750
+100 A(0,100)._    /|               binding at D: demand (D) and Source-1 cap (S)
+    |    \    ``._/ |  x1=70        slack    at D: facility (F), 20 MW headroom
+    |     \  obj  D(70,30) ★
+  0 +-------------+--------> x1     demand line x1+x2=100 (be above),
+    0            70                 facility line x1+x2=120 (be below)
+
+Solve (by reasoning): use the cheap Source 1 as much as possible. Source 1 caps
+at 70 (constraint S binds, x1 = 70). Remaining demand 100 - 70 = 30 from Source
+2, so x2 = 30. Check facility: x1+x2 = 100 <= 120 -> SLACK (not binding).
+   Optimal plan: x1* = 70, x2* = 30.
+   Optimal cost = 30*70 + 55*30 = 2100 + 1650 = $3,750 for the hour.
+
+Shadow prices (read off which constraints bind):
+   - (D) demand x1+x2 >= 100 BINDS. Its shadow price y_D = marginal cost of one
+     more MW of demand. The extra MW would come from Source 2 (the marginal
+     source) at $55 -> y_D = $55/MWh.
+        Business: "Each additional MW of required load this hour costs $55."
+   - (S) Source-1 cap x1 <= 70 BINDS. Its shadow price y_S = savings from one
+     more MW of cheap Source-1 capacity. That MW would displace one MW of
+     Source 2: save 55 - 30 = $25 -> y_S = $25/MWh.
+        Business: "One more MW of Source-1 capacity saves us $25/hour."
+   - (F) facility/PUE cap x1+x2 <= 120 is SLACK (100 < 120) -> y_F = $0.
+        Business: "We are NOT power-capacity constrained this hour; expanding
+        the grid connection saves nothing right now."
+
+RHS ranges (the critical caveat numbers):
+   - y_S = $25 holds while Source-1 capacity rises until Source 1 would fully
+     cover demand. Source 1 can grow from 70 up to 100 (at which point x2 hits 0
+     and demand is met entirely by Source 1); beyond 100 the extra Source-1
+     capacity is worthless (y_S drops to 0). So the "$25/MW saving" is valid
+     only for roughly the next +30 MW. Tell the stakeholder exactly that.
+   - y_D = $55 holds while the marginal MW keeps coming from Source 2 and
+     facility cap isn't hit — i.e. demand up to 120 (facility limit). Past 120
+     the model becomes INFEASIBLE (can't serve it) — a cliff, not a slope.
+
+Now flip to NON-TECHNICAL language for "non-zero shadow price on a CAPACITY
+constraint" (the question asked):
+   "The optimizer says our cheap power source is maxed out and that's the thing
+    holding cost down. Right now, every extra megawatt of that cheap capacity
+    we could add would cut this hour's bill by $25 — but only for about the next
+    30 MW; after that the benefit disappears because we'd have more cheap power
+    than we need. Meanwhile our grid connection is NOT the bottleneck this hour,
+    so spending money to expand it would save nothing right now."
+That single paragraph is the entire deliverable a stakeholder needs: what's
+scarce, what one more unit is worth, how far that worth extends, and what is
+NOT worth spending on.
+
+
+---------------------------------------------------------------------------
+7. HOW TO PRESENT IT IN A DASHBOARD
+---------------------------------------------------------------------------
+
+Design principle: a shadow price is useless to a stakeholder without (a) plain
+language, (b) its valid range, and (c) a confidence flag (LP vs MILP).
+
+Suggested CONSTRAINT table (one row per constraint):
+
+  Constraint        Status    Shadow price   Valid range (RHS)     Plain-English
+  ---------------------------------------------------------------------------------
+  Hourly demand     Binding   $55 / MW       100 -> up to 120 MW   "Each extra MW
+                                                                    of load costs $55"
+  Source-1 capacity Binding   $25 / MW       70 -> up to 100 MW    "Each extra MW of
+                                                                    cheap capacity
+                                                                    saves $25"
+  Facility (PUE)    Slack     $0             n/a (36 MW headroom)  "Not a bottleneck
+                                                                    this hour"
+
+Suggested DECISION/ACTIVITY table (reduced costs + obj ranging):
+
+  Option       Used?   Amount   Reduced cost   Cost stays optimal while price in
+  ---------------------------------------------------------------------------------
+  Source 1     Yes     70 MW    $0             [ -inf , $55 ]  (stays chosen til
+                                                               it's pricier than Src 2)
+  Source 2     Yes     30 MW    $0             [ $30 , +inf ]
+  Source 3 *   No      0        +$18 / MW      "needs to drop $18/MW to be used"
+
+Visual/UX recommendations:
+   - BAR of "value of relaxing each constraint" (the shadow prices), sorted
+     descending -> instantly shows the stakeholder the top bottleneck.
+   - Show the VALID RANGE as an error-bar / shaded band on that bar, and GRAY
+     OUT the bar beyond the range so no one over-extrapolates.
+   - A "what if +X MW" slider that, INSIDE the range, uses the linear shadow
+     price for an instant estimate; OUTSIDE the range, it should say
+     "re-optimize required" rather than extrapolate.
+   - MILP FLAG: if the model has integer decisions (unit commitment, build
+     yes/no), badge every shadow price "approx — based on LP relaxation" and,
+     where it matters, replace the number with an actual scenario re-solve
+     result ("we tested +10 MW: real saving $220/hr"). Never show MILP duals
+     with the same styling as exact LP duals.
+   - Tie back to your pipeline: these shadow prices come from the EXACT LP path
+     (the slow, globally-optimal solver), not the Optuna heuristic — so the
+     dashboard should source sensitivity numbers from the LP results, and can
+     note when the heuristic's plan would imply different bottlenecks.
+
+===========================================================================

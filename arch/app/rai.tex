@@ -1,0 +1,104 @@
+\documentclass[10pt,article]{article}
+\usepackage[letterpaper,top=0.45in,bottom=0.45in,left=0.45in,right=0.45in]{geometry}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{palatino}
+\usepackage{hyperref}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{color}
+\definecolor{mygrey}{gray}{0.88}
+\pagestyle{empty}
+% Clean section banner
+\newcommand{\resheading}[1]{%
+ \vspace{7pt}%
+ \noindent\colorbox{mygrey}{\parbox{\dimexpr\textwidth-2\fboxsep\relax}{\textbf{\small #1}}}%
+ \vspace{4pt}%
+}
+% Bullet setup
+\setlist[itemize]{
+   leftmargin=1.15em,
+   topsep=3pt,
+   partopsep=1pt,
+   parsep=1pt,
+   itemsep=4pt
+}
+\setlist[itemize,2]{
+   label=$\circ$,
+   leftmargin=1.15em,
+   topsep=3pt,
+   partopsep=1pt,
+   parsep=1pt,
+   itemsep=3pt
+}
+\begin{document}
+% --- HEADER ---
+\noindent
+\begin{minipage}[b]{0.68\textwidth}
+   {\Large \textbf{Jagannath Mukkara}}\\[2pt]
+   \textbf{M.Tech, Computer Science} \textbar\ Indian Statistical Institute, Kolkata \\[1pt]
+   \small \textit{AI Engineer --- Agentic Systems, GraphRAG \& LLM Inference}
+\end{minipage}%
+\hfill
+\begin{minipage}[b]{0.32\textwidth}
+   \raggedleft \small
+   +91 8074148733 \\
+   \href{mailto:jagan.mukkara12@gmail.com}{jagan.mukkara12@gmail.com}
+\end{minipage}
+\vspace{6pt}
+% --- EDUCATION ---
+\noindent
+\begin{tabularx}{\textwidth}{@{} l X @{}}
+\toprule
+\textbf{Course} & \textbf{College / University} \\
+\midrule
+M.Tech Computer Science & Indian Statistical Institute, Kolkata \\
+B.Tech Computer Science & Sri Venkateswara University \\
+\bottomrule
+\end{tabularx}
+% --- WORK EXPERIENCE ---
+\resheading{WORK EXPERIENCE}
+\begin{itemize}
+   \item \textbf{Lead AI Engineer \textbar\ Sustainability Economics} \hfill \textit{[Dec'25--Present]}
+   \begin{itemize}
+       \item \textbf{Hybrid GraphRAG \& Agentic Orchestration:} Architected an air-gapped, enterprise-grade retrieval workflow on a LangGraph Router\,--\,Reasoner topology, fusing dense vectors, sparse BM25, and Knowledge Graphs to resolve complex multi-hop legal dependencies that single-vector retrieval could not.
+       \item \textbf{Safety, Grounding \& Compliance Layer:} Engineered an evaluation and guardrail layer enforcing grounded extraction and strict citation validation, with real-time hallucination checks, to guarantee verifiable, audit-ready outputs for regulated enterprise compliance use cases.
+       \item \textbf{High-Throughput Self-Hosted Inference:} Deployed and tuned self-hosted inference for Llama-3.1 (70B \& 8B) on a multi-GPU RTX 6000 Ada cluster via vLLM, AWQ 4-bit quantization, and PagedAttention, reclaiming substantial VRAM headroom and unlocking long-context windows for document-heavy workloads.
+       \item \textbf{Latency \& Concurrency Engineering:} Scaled the platform to serve concurrent enterprise users with markedly improved end-to-end throughput via semantic caching, chunked prefill, and asynchronous task queues, keeping interactive response times low under load.
+       \item \textbf{Optimization \& Sanity Benchmarking:} Replaced a legacy Differential Evolution + L-BFGS-B model (multi-second solves) with Bayesian Optimization + L-BFGS-B for near-instant live browser ROI previews, and formulated a parallel MILP model as a business sanity check to prove the lightweight solver reached near-global optimality.
+       \item \textbf{Deployment \& Infrastructure:} Containerized all frameworks with Docker and automated deployments on AWS via CI/CD pipelines, ensuring reproducible builds and consistent environments across dev and staging.
+   \end{itemize}
+   \item \textbf{AI Engineer \textbar\ BluBridge} \hfill \textit{[Sept'25--Oct'25]}
+   \begin{itemize}
+       \item Built an FX-style graph-capture system to convert eager execution into static IR, enabling whole-graph optimization of model execution.
+       \item Designed a tensor IR (SSA DAG) with shape inference and dependency tracking for kernel fusion and code generation.
+   \end{itemize}
+   \item \textbf{Data Scientist / Systems Engineer \textbar\ Tata Consultancy Services} \hfill \textit{[April'21--Nov'22]}
+   \begin{itemize}
+       \item Developed a Next-Best-Offer engine for a US bank using XGBoost over a large rolling feature set to predict cross-sell conversion with strong ranking performance.
+       \item Automated weekly batch inference across millions of retail accounts, optimizing Precision@2 and measurably lifting digital engagement.
+   \end{itemize}
+\end{itemize}
+
+% --- Dissertation ---
+\resheading{Dissertation}
+\begin{itemize}
+   \item \textbf{2.5D Dual-Encoder U-Net for Lesion Segmentation in Chest CT Scans} \textbar\ Prof. Sarbani Palit \hfill \href{YOUR_GITHUB_LINK}{GitHub}
+   \begin{itemize}
+       \item \textbf{Novel Architecture:} Designed a CNN-based medical image segmentation architecture combining 2.5D learning with a dual-encoder U-Net for processing 3D chest CT scans.
+       \item \textbf{Accuracy \& Efficiency:} Achieved higher segmentation accuracy than traditional 2D CNNs with comparable architectural complexity and resource utilization.
+   \end{itemize}
+\end{itemize}
+
+% --- SKILLS ---
+\resheading{SKILLS}
+\begin{itemize}[itemsep=3.5pt]
+\item \textbf{Agentic AI \& Orchestration:} LangGraph, LangChain, Multi-Agent Systems, Supervisor--Worker Architecture, Asynchronous Task Queues
+\item \textbf{RAG \& Retrieval:} Hybrid Retrieval, GraphRAG, Dense Vectors, BM25, Cross-Encoder Reranking, ChromaDB, Citation Grounding
+\item \textbf{LLM Inference \& Optimization:} vLLM, AWQ Quantization, PagedAttention, FlashAttention, Semantic Caching, Chunked Prefill, Memory Optimization
+\item \textbf{Evaluation \& ML Optimization:} A/B Testing, Offline Evaluation, LLM-as-a-Judge, Bayesian Optimization, L-BFGS-B, MILP, XGBoost
+\item \textbf{Infrastructure \& Deployment:} Docker, AWS (Lambda, S3, SQS), CI/CD, GitHub Actions, FastAPI, Git, Redis
+\item \textbf{Programming \& Frameworks:} Python, SQL, PyTorch
+\end{itemize}
+\end{document}

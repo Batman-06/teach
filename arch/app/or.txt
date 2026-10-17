@@ -1,0 +1,179 @@
+===============================================================================
+            OPERATIONS RESEARCH — INTERVIEW PREP PRIORITIZATION
+===============================================================================
+A tiered guide to what actually gets tested in serious OR interviews,
+organized by return-on-investment of study time.
+
+
+===============================================================================
+ TIER 1 — NON-NEGOTIABLE CORE
+ (Tested in almost every serious OR interview)
+===============================================================================
+The backbone of whiteboarding, algorithmic questioning, and design rounds.
+
+-------------------------------------------------------------------------------
+ Phase 1: Foundations
+-------------------------------------------------------------------------------
+• Polyhedral Theory & Basic Feasible Solutions (BFS)
+    Crucial. Clearly explain the equivalence between extreme points, vertices,
+    and basic feasible solutions (Ax = b, x >= 0).
+
+• Strong Duality & Complementary Slackness
+    Guaranteed interview questions. Expect dual interpretations, economic
+    equilibrium, and optimality verification via slackness.
+
+• Sensitivity Analysis & Shadow Prices
+    Fundamental for business-translation rounds
+    (e.g., "What does a non-zero dual variable mean to the VP of Supply Chain?").
+
+• Decomposition (Benders & Dantzig-Wolfe)
+    Critical for senior roles. Know when to use:
+      - Benders        -> complicating variables / block structure
+      - Dantzig-Wolfe  -> complicating constraints
+
+-------------------------------------------------------------------------------
+ Phase 2: Integer & Combinatorial
+-------------------------------------------------------------------------------
+• Branch and Cut
+    The engine of commercial solvers. Know branching strategies, node
+    selection, and LP relaxation bounds.
+
+• Column Generation & Branch-and-Price
+    Standard for crew scheduling, cutting stock, and vehicle routing.
+    Expect: how the pricing problem generates columns with negative
+    reduced cost.
+
+• Lagrangian Relaxation
+    Standard for finding tight bounds and explaining subgradient steps.
+
+• Total Unimodularity (TUM)
+    Classic screening question: why TUM matrices guarantee integer
+    LP solutions.
+
+-------------------------------------------------------------------------------
+ Phase 3: Network Optimization
+-------------------------------------------------------------------------------
+• Max-Flow / Min-Cut Theorem
+    Asked constantly — both mathematically and as a modeling trick.
+
+• Minimum Cost Flow & Network Simplex
+    Fastest algorithms in linear network design; basic formulation and
+    basis-tree mechanics are expected.
+
+-------------------------------------------------------------------------------
+ Phase 7: Solvers & Production Reality
+-------------------------------------------------------------------------------
+• Gurobi / CPLEX Internals
+    Presolve mechanisms, IIS (Irreducible Infeasible Subsystems) for
+    debugging infeasible models, lazy constraints vs. user cuts, and
+    MIP gap definitions.
+
+• Numerical Stability
+    Coefficient ranges (10^6 vs 10^-3), big-M choices, and condition numbers.
+
+
+===============================================================================
+ TIER 2 — SITUATIONAL
+ (High value depending on the role / domain)
+===============================================================================
+Prepare these for companies in logistics, supply chain, cloud capacity,
+or pricing.
+
+-------------------------------------------------------------------------------
+ Phase 4: Stochastic & Robust OR
+-------------------------------------------------------------------------------
+• Two-Stage Stochastic Programming & L-Shaped Method
+    Vital for energy-grid sizing, capacity planning, and supply chain
+    network design under demand uncertainty.
+
+• MDPs (Value / Policy Iteration)
+    Essential if the team touches reinforcement learning, dynamic pricing,
+    or sequential decision-making. Rarely tested in pure math-programming
+    roles.
+
+• Robust Optimization
+    Know the intuition (worst-case polyhedral / budgeted uncertainty sets).
+    Exact derivation of ellipsoidal duals is rarely asked on a whiteboard.
+
+-------------------------------------------------------------------------------
+ Phase 5: Queueing & Inventory
+-------------------------------------------------------------------------------
+• Inventory Theory (Newsvendor, EOQ, (s, S))
+    A must for retail, e-commerce, or manufacturing (Amazon, Walmart,
+    Target). Less critical for scheduling / energy roles.
+
+• Queueing Theory & Little's Law
+    Standard for telecom, cloud scheduling (AWS/GCP), and ride-hailing
+    (Uber/Lyft).
+
+-------------------------------------------------------------------------------
+ Phase 6: Metaheuristics
+-------------------------------------------------------------------------------
+• ALNS & Large Neighborhood Search
+    Non-negotiable if the company solves last-mile delivery, vehicle
+    routing (VRP), or large-scale bin packing where exact MILP fails at
+    scale. For pure scheduling / blending, basic simulated annealing or
+    local-search intuition suffices.
+
+
+===============================================================================
+ TIER 3 — IGNORABLE / LOW ROI
+ (Skip for initial prep)
+===============================================================================
+Weeks of study time, near-zero yield in 95% of industry interviews.
+
+• Phase 1 — Revised Simplex Implementation
+    Know how the tableau works conceptually and why sparse LU factorization
+    is used. Memorizing step-by-step matrix inversion by hand is wasted time.
+
+• Phase 1 — Interior Point Methods (Primal-Dual Path-Following)
+    Basic intuition is plenty (barrier parameter mu -> 0, Newton step toward
+    the central path). You'll virtually never derive the KKT-system steps on
+    a whiteboard.
+
+• Phase 1 — Farkas' Lemma
+    Duality and complementary slackness are tested directly; formal Farkas'
+    Lemma proofs are academic filter questions.
+
+• Phase 2 — Matroid Theory
+    Beautiful math, but interviewers stick to TUM or greedy bounds on graphs.
+
+• Phase 2 — Detailed Cut Lifting Mechanics
+    Knowing definitions of Gomory cuts and knapsack covers is enough; manual
+    coefficient lifting is overkill.
+
+• Phase 3 — Cycle-Canceling
+    Network simplex and basic min-cost flow formulations suffice;
+    cycle-canceling proofs are academic.
+
+• Phase 4 — Chance-Constrained Optimization
+    Hard to solve in non-convex form without sample approximations. Rarely
+    probed beyond: "how do you linearize a VaR / chance constraint using
+    binary variables?"
+
+• Phase 5 — Jackson Networks & Complex Queueing Proofs
+    Little's Law and basic M/M/1 or M/M/s formulas are enough.
+
+• Phase 6 — GRASP / VNS Variants
+    Stick to the core intuition of ruin-and-recreate (ALNS) and Tabu Search.
+
+
+===============================================================================
+ QUICK REFERENCE — PRIORITY MAP
+===============================================================================
+  TIER 1 (learn cold)   : BFS/Polyhedra, Strong Duality + Slackness,
+                          Sensitivity/Shadow Prices, Benders & Dantzig-Wolfe,
+                          Branch & Cut, Column Generation / Branch-and-Price,
+                          Lagrangian Relaxation, TUM, Max-Flow/Min-Cut,
+                          Min-Cost Flow / Network Simplex, Solver internals,
+                          Numerical stability.
+
+  TIER 2 (role-driven)  : 2-Stage Stochastic / L-Shaped, MDPs, Robust Opt,
+                          Inventory (Newsvendor/EOQ/(s,S)), Queueing/Little's,
+                          ALNS / LNS.
+
+  TIER 3 (skip first)   : Revised Simplex impl, Interior Point derivations,
+                          Farkas' Lemma proofs, Matroid Theory, Cut lifting,
+                          Cycle-Canceling, Chance Constraints, Jackson
+                          Networks, GRASP/VNS.
+===============================================================================

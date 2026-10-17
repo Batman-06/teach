@@ -1,0 +1,344 @@
+===========================================================================
+LP STRONG DUALITY & COMPLEMENTARY SLACKNESS  — explained for an ML person
+===========================================================================
+
+Mental model up front
+----------------------
+If you know Lagrangian duality from SVMs / constrained optimization, you
+already know 90% of this. LP duality is just the special case where the
+objective and all constraints are linear. The two facts that make the LP case
+unusually clean:
+
+  (1) Strong duality holds *unconditionally* whenever the problem is feasible
+      and bounded (no constraint qualification to check, unlike general
+      nonlinear programs).
+  (2) The KKT conditions collapse into a very crisp combinatorial statement
+      called complementary slackness.
+
+Everything below builds to one practical payoff: you can CERTIFY that a
+candidate solution is optimal without re-solving — the same way you'd verify a
+proof is easier than finding it.
+
+
+---------------------------------------------------------------------------
+1. PRIMAL VS DUAL
+---------------------------------------------------------------------------
+
+Take a cost-minimization primal in the standard "greater-than" form:
+
+      PRIMAL (P)                         DUAL (D)
+      min   c^T x                        max   b^T y
+      s.t.  A x >= b                     s.t.  A^T y <= c
+            x >= 0                              y >= 0
+
+  - x in R^n  : the decision variables (how much of each activity).
+  - c in R^n  : cost per unit of each activity.
+  - A x >= b  : m requirement constraints (must meet at least b of something).
+  - y in R^m  : the dual variables, ONE PER PRIMAL CONSTRAINT.
+
+Where the dual comes from (the part that makes it click):
+Form the Lagrangian by pricing each violated constraint with a multiplier y>=0:
+
+      L(x, y) = c^T x + y^T (b - A x)
+              = y^T b + (c - A^T y)^T x
+
+Minimizing over x >= 0: if any coefficient (c - A^T y)_j < 0, you can push that
+x_j -> +inf and L -> -inf. So to get a useful (finite) lower bound you must
+require c - A^T y >= 0, i.e. A^T y <= c. Under that restriction the x-term
+vanishes at the optimum and the bound is just b^T y. Maximizing that bound over
+all feasible prices y gives exactly the dual (D).
+
+So the dual is not a trick — it is "find the tightest lower bound on the primal
+that you can certify using a nonnegative price on each constraint."
+
+Rule of thumb for the correspondence (memorize this, it kills interview traps):
+  - primal CONSTRAINTS  <-> dual VARIABLES   (m constraints -> m dual vars)
+  - primal VARIABLES    <-> dual CONSTRAINTS (n vars -> n dual constraints)
+  - min <-> max
+  - a ">=" primal constraint  -> a ">= 0" dual variable
+  - a "<=" dual constraint     comes from an "x >= 0" primal variable
+
+
+---------------------------------------------------------------------------
+2. WEAK DUALITY  (always true, for free)
+---------------------------------------------------------------------------
+
+For ANY primal-feasible x and ANY dual-feasible y:
+
+      b^T y  <=  (A x)^T y = x^T (A^T y)  <=  c^T x
+
+Read left to right:
+  - b <= A x    (primal feasibility) and y >= 0   =>   b^T y <= (Ax)^T y
+  - A^T y <= c  (dual feasibility)  and x >= 0    =>   x^T(A^T y) <= c^T x
+
+Therefore:   dual objective  <=  primal objective,   ALWAYS.
+
+Consequences you get for nothing:
+  - Every dual-feasible y is a certified LOWER BOUND on the min cost.
+  - Every primal-feasible x is a certified UPPER BOUND.
+  - If you ever find x and y with c^T x = b^T y, BOTH are optimal. Done. No need
+    to prove it further — weak duality squeezes them together.
+  - If primal is unbounded (-inf), the dual must be INFEASIBLE, and vice versa.
+
+The quantity  c^T x - b^T y >= 0  is the DUALITY GAP. In LP it closes to zero.
+
+
+---------------------------------------------------------------------------
+3. STRONG DUALITY  (the LP gift)
+---------------------------------------------------------------------------
+
+STRONG DUALITY: If the primal has a finite optimum, then the dual also has a
+finite optimum and the two optimal values are EQUAL:
+
+      min c^T x  =  max b^T y       (gap = 0)
+
+Why this is a big deal vs. general optimization:
+  - In generic nonlinear / nonconvex problems there is usually a NONZERO gap.
+  - In convex problems you get strong duality only under a constraint
+    qualification (e.g. Slater's condition — a strictly feasible point).
+  - In LP you need NOTHING extra. Feasible + bounded => gap is exactly zero.
+    (Provable via the Simplex termination or via Farkas' lemma / separating
+    hyperplanes.)
+
+The four possible states (another trap-killer):
+      primal \ dual   dual feasible        dual infeasible
+      primal feas.    both optimal,         primal UNBOUNDED
+                      equal values
+      primal infeas.  dual UNBOUNDED        both infeasible (can happen)
+
+Note the asymmetry people forget: "primal infeasible" does NOT force "dual
+infeasible" — the dual may instead be unbounded.
+
+
+---------------------------------------------------------------------------
+4. ECONOMIC READING: THE DUAL AS MARGINAL PRICES (shadow prices)
+---------------------------------------------------------------------------
+
+This is the interpretation that makes duality intuitive and is exactly how
+you'll use it in a real optimizer (and in your DynamoDB/LP energy pipeline).
+
+Each dual variable y_i is the SHADOW PRICE of primal constraint i:
+
+      y_i*  =  d(optimal cost) / d(b_i)
+
+i.e. "if I relax requirement i by one unit, how much does my optimal cost
+change?" It is the marginal value of that resource/requirement at the optimum.
+
+Reading it as prices:
+  - Constraint i says "produce at least b_i of good i." y_i is what one more
+    unit of that requirement costs you at the margin.
+  - Dual feasibility  A^T y <= c  reads: "the imputed value of the inputs that
+    go into activity j (that's (A^T y)_j) must not exceed its actual cost c_j."
+    An activity is only worth running if its priced-out value fully uses up its
+    cost — no free profit, a no-arbitrage condition.
+  - Strong duality  c^T x = b^T y  is an accounting identity: total cost =
+    total value imputed to the requirements. The whole cost is exactly
+    explained by the shadow prices on the requirements you were forced to meet.
+
+Caveats to state out loud (interviewers probe this):
+  - Shadow prices are LOCAL derivatives, valid only within the range where the
+    optimal BASIS doesn't change. Push b_i far enough and y_i jumps.
+  - If the LP is degenerate, the shadow price may be one-sided / non-unique
+    (left derivative != right derivative).
+
+
+---------------------------------------------------------------------------
+5. COMPLEMENTARY SLACKNESS  (the certificate mechanism)
+---------------------------------------------------------------------------
+
+Strong duality forces the two weak-duality inequalities in section 2 to hold
+with EQUALITY at the optimum. Equality in a sum of nonnegative terms means
+every term is individually zero. That gives the two CS conditions:
+
+  (CS-1)  For each primal variable j:
+            x_j * (c_j - (A^T y)_j) = 0
+          => either x_j = 0, OR the j-th dual constraint is tight (= c_j).
+
+  (CS-2)  For each primal constraint i:
+            y_i * ((A x)_i - b_i) = 0
+          => either y_i = 0, OR the i-th primal constraint is tight (A x = b_i).
+
+Plain-English dictionary:
+  - "A constraint has SLACK" = it holds with strict inequality (not binding).
+  - "A variable is ACTIVE"   = it is strictly positive.
+
+Then CS says, in both directions:
+
+  * If a primal CONSTRAINT is slack (over-satisfied, Ax_i > b_i),
+        its price must be ZERO (y_i = 0).
+        -> Economic sense: you have surplus of resource i, so one more unit is
+           worthless at the margin. Free goods are priced at zero.
+
+  * If a dual PRICE is positive (y_i > 0),
+        the constraint must be TIGHT (Ax_i = b_i).
+        -> Only scarce (binding) resources carry a positive price.
+
+  * If an activity is USED (x_j > 0),
+        its dual constraint is tight: priced value equals cost, (A^T y)_j = c_j.
+        -> You only run activities that exactly break even under the prices.
+
+  * If an activity is OVERPRICED ((A^T y)_j < c_j, i.e. dual constraint slack),
+        it is NOT used (x_j = 0).
+        -> Reduced cost is positive, so it's not worth running.
+
+The term (c_j - (A^T y)_j) is literally the REDUCED COST of x_j — the same
+reduced cost the Simplex method watches. CS = "no used variable has nonzero
+reduced cost, and no slack constraint has a nonzero price."
+
+
+---------------------------------------------------------------------------
+6. VERIFYING OPTIMALITY WITHOUT RE-SOLVING
+---------------------------------------------------------------------------
+
+This is the practical punchline. To CERTIFY that a given x* is optimal you do
+NOT re-run the solver. You exhibit a y* and check three cheap things:
+
+   (a) PRIMAL FEASIBILITY:  A x* >= b,  x* >= 0.
+   (b) DUAL FEASIBILITY:     A^T y* <= c,  y* >= 0.
+   (c) COMPLEMENTARY SLACKNESS: CS-1 and CS-2 hold for every j and i
+       (equivalently: duality gap c^T x* - b^T y* = 0).
+
+If all three pass, x* and y* are a matched optimal pair — this is a PROOF, by
+weak+strong duality, not a heuristic. Verifying is O(mn) matrix-vector checks;
+solving is far more expensive. This is the LP analogue of "checking a witness is
+cheaper than finding one."
+
+How you actually get y* to check with: in practice the solver hands it to you.
+Any LP/MIP solver (the "dual values", "shadow prices", or "pi" vector) returns
+y* alongside x*. CS is then your sanity check that the solver's x* and y* are
+mutually consistent.
+
+
+---------------------------------------------------------------------------
+7. WORKED EXAMPLE  (the shared running example, dual solved by hand)
+---------------------------------------------------------------------------
+
+The Two-Source Hourly Power LP defined in "LP & Convexity Basics..." (plotted
+there). Recap:
+
+  x1 = MW from cheap Source 1 ($30/MWh, cap 70),  x2 = MW from pricey Source 2 ($55/MWh)
+
+  PRIMAL (P):
+      min  30 x1 + 55 x2
+      s.t. (D)  x1 + x2 >= 100       hourly demand        [dual y_D]
+           (F)  x1 + x2 <= 120       facility / PUE cap    [dual y_F]
+           (S)  x1      <=  70       Source-1 capacity     [dual y_S]
+           x1, x2 >= 0
+
+From the plot we already know the answer: x* = (70, 30), cost* = 3750, with (D)
+and (S) binding and (F) slack. Now CERTIFY it with a dual, no re-solving.
+
+Put it in the all-">=" standard form of section 1 so every dual var is >= 0 —
+flip the two "<=" rows by negating (that is the mechanical trick to remember):
+
+      (D)   x1 + x2 >= 100          y_D >= 0
+      (F') -x1 - x2 >= -120         y_F >= 0
+      (S') -x1      >=  -70         y_S >= 0
+
+   A = [ 1   1 ]      b = [ 100 ]      c = [ 30 ]
+       [-1  -1 ]          [-120 ]          [ 55 ]
+       [-1   0 ]          [ -70 ]
+
+DUAL (D), by the recipe (3 constraints -> 3 dual vars; 2 vars -> 2 dual
+constraints; min->max; use A^T, columns of A become dual rows):
+
+      max  100 y_D - 120 y_F - 70 y_S
+      s.t. (col x1)  y_D - y_F - y_S <= 30
+           (col x2)  y_D - y_F        <= 55
+           y_D, y_F, y_S >= 0
+
+Solve the dual by hand using complementary slackness as the shortcut:
+  - (F) is SLACK in the primal (x1+x2 = 100 < 120)  => CS-2 forces y_F = 0.
+  - x1 > 0 and x2 > 0  => CS-1 forces BOTH dual constraints tight:
+        col x2:  y_D - y_F        = 55   => y_D = 55   (since y_F = 0)
+        col x1:  y_D - y_F - y_S  = 30   => 55 - y_S = 30 => y_S = 25
+   Dual objective = 100*55 - 120*0 - 70*25 = 5500 - 1750 = 3750.
+
+Check everything:
+  - Dual feasibility: y_D,y_F,y_S >= 0 (55, 0, 25 — yes); both dual constraints
+    hold (tight, as required).
+  - Strong duality: primal 3750 == dual 3750. Gap zero. Both optimal. CERTIFIED.
+
+Shadow-price reading (the deliverable a stakeholder actually wants):
+  - y_D = 55: serving one more MW of demand costs ~$55 — it comes from the pricey
+    marginal source. (Relaxing a ">=" requirement upward RAISES cost.)
+  - y_S = 25: one more MW of cheap Source-1 capacity SAVES ~$25 — it displaces a
+    $55 MW with a $30 MW, saving 55-30. (The "<=" cap, so relaxing it cuts cost.)
+  - y_F = 0: the facility cap is not binding this hour, so expanding the grid
+    connection is worth nothing right now. Free (surplus) resource -> zero price.
+  (All local, valid only while the basis "use Source 1 to its cap, top up with
+  Source 2" stays optimal — see the Sensitivity note for the exact ranges.)
+
+The slack constraint (F) IS the contrasting "what if slack?" case built right
+into the example: a resource you have in surplus is priced at zero by CS-2.
+
+
+---------------------------------------------------------------------------
+8. USING SLACKNESS TO SANITY-CHECK A SOLVER'S OUTPUT
+---------------------------------------------------------------------------
+
+A concrete checklist when a solver (scipy.linprog, HiGHS, Gurobi, OR-Tools,
+PuLP...) hands you x* and the dual/shadow-price vector y*:
+
+  1. Recompute primal feasibility: A x* >= b and x* >= 0 (within tolerance).
+  2. Recompute dual feasibility: A^T y* <= c and y* >= 0.
+  3. Compare objectives: |c^T x* - b^T y*| ~ 0. A nonzero gap means something
+     is wrong (not converged, wrong sign convention, or you grabbed the wrong
+     dual vector).
+  4. Walk complementary slackness, variable by variable:
+        - For every CONSTRAINT with slack (A x* strictly > b): assert y_i ~ 0.
+          If the solver reports a positive shadow price on a non-binding
+          constraint, that's a red flag / sign-convention bug.
+        - For every ACTIVE variable (x_j > 0): assert reduced cost
+          c_j - (A^T y*)_j ~ 0.
+        - For every variable with positive reduced cost: assert x_j ~ 0.
+  5. If using a MIP/heuristic (like your Optuna path), you do NOT get a valid
+     dual directly, but you can still use the LP RELAXATION's dual as a lower
+     bound: heuristic_cost - LP_dual_bound is a certified optimality GAP for the
+     heuristic. This is exactly the right tool to quantify "how far off is the
+     fast heuristic from the LP optimum" in your pipeline's deviation check.
+
+Practical gotchas that make checks "fail" spuriously:
+  - SIGN CONVENTIONS. Solvers differ on the sign of duals for <= vs >= vs max
+    vs min. Always confirm the convention before asserting y >= 0.
+  - TOLERANCES. Use relative + absolute tolerances; never test exact equality on
+    floats.
+  - DEGENERACY. Duals may be non-unique; CS still holds but a particular y* you
+    expected might not be the one returned.
+
+
+---------------------------------------------------------------------------
+9. THREE COMMON INTERVIEW TRAPS
+---------------------------------------------------------------------------
+
+TRAP 1 — "Strong duality needs a constraint qualification."
+  FALSE for LP. Slater / constraint qualifications are needed for general
+  convex programs. For LP, feasible + bounded => zero gap, period. If they're
+  thinking of general convex optimization, call that out explicitly; the LP case
+  is special precisely because it needs nothing.
+
+TRAP 2 — Confusing the two directions of complementary slackness, i.e.
+  claiming "constraint is tight => dual variable is positive."
+  WRONG direction. Tightness does NOT force y_i > 0 — a binding constraint can
+  still have y_i = 0 (this is exactly DEGENERACY). The valid implications are
+  the contrapositives:
+        y_i > 0      => constraint tight
+        slack (>)    => y_i = 0
+  You can go "positive price => binding" and "slack => zero price," but NOT
+  "binding => positive price." Many candidates state the false converse.
+
+TRAP 3 — Mishandling the primal-infeasible / unbounded relationships.
+  People say "primal unbounded <=> dual unbounded." WRONG. The correct facts:
+        primal UNBOUNDED  => dual INFEASIBLE   (and the converse direction is
+                                               not automatic)
+        primal INFEASIBLE => dual is unbounded OR infeasible
+  Both-infeasible is a genuine possibility. The clean biconditional is only:
+  "an optimum exists for one <=> an optimum exists for the other, with equal
+  value." Keep "unbounded" paired with "infeasible," never "unbounded" with
+  "unbounded."
+
+(Bonus trap worth having ready: "the shadow price is a global price." No — it's
+a local marginal, valid only while the optimal basis is unchanged; it can be
+non-unique under degeneracy and one-sided at breakpoints.)
+
+===========================================================================

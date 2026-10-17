@@ -1,0 +1,206 @@
+===============================================================================
+            OR READING LIST — TAILORED TO MY ROLE
+   Profile: ML / Data Scientist (sustainability economics)
+   Project: energy demand-profile pipeline; converting the Optuna+simulation
+            sizing/dispatch optimiser into an exact LP (not MILP), then
+            comparing exact LP vs the fast heuristic and analysing deviation.
+
+   Model reality (clem repo): current optimiser is Optuna TPE wrapped around a
+   RULE-BASED hourly dispatch sim (discharge-first-else-charge, min()/clamp
+   logic, SOC bounds, merit order). Decision vars = continuous zone sizes +
+   shared BESS. Target = re-express this as a single LP.
+
+   LP not MILP: the only thing forcing a binary is "never charge & discharge
+   in the same hour." With round-trip efficiency < 1, simultaneous charge+
+   discharge wastes money, so a cost-min LP avoids it on its own -> the binary
+   charge flag is PROVABLY REDUNDANT. (Holds only if nothing ever REWARDS
+   cycling, e.g. negative prices + paid curtailment. State that assumption.)
+===============================================================================
+Topics only, with LLM learning prompts. Study the LP CONVERSION block in order.
+
+
+-------------------------------------------------------------------------------
+ LP CONVERSION — DO FIRST, IN SEQUENCE (this is the actual build)
+-------------------------------------------------------------------------------
+1) Multi-period Storage LP Formulation (SOC balance; why the charge flag drops)
+  PROMPT: "I'm an ML/data scientist converting a rule-based battery dispatch sim
+  into an exact LP. Teach me the canonical multi-period storage LP: decision vars
+  charge[t], discharge[t], SOC[t] over 8760 hours; the SOC balance constraint
+  SOC[t] = SOC[t-1] + eta_c*charge[t] - discharge[t]/eta_d; bounds min_SOC/max_SOC,
+  power caps Pmax, initial/terminal SOC. Then prove the key result I'm relying on:
+  with round-trip efficiency eta_c*eta_d < 1, a cost-minimising LP never charges
+  and discharges in the same hour, so the usual binary charge/discharge flag is
+  redundant and I can stay in pure LP. Show exactly when this breaks (negative
+  prices, paid curtailment, rewards for cycling). Give the full LP written out and
+  3 interview questions with answers."
+
+2) Linearization Techniques (min/max, clamps, if-else priority, piecewise cost)
+  PROMPT: "Teach me how to linearise logic that's currently written as Python
+  rules so it becomes LP constraints. My dispatch sim uses min()/max(), SOC
+  clamps, an if-else 'discharge first else charge from solar then wind then
+  market' priority, and merit-order stacking. For each pattern show the LP trick:
+  replacing min/max with inequalities + the objective's own pressure, expressing
+  priority/merit order via cost ordering instead of if-else, piecewise-linear
+  convex costs, and which rules CANNOT be linearised without a binary (so I know
+  what I'm approximating). Give before/after examples mapping a rule to
+  constraints, and 3 interview questions."
+
+3) Economic Dispatch & Unit Commitment as LP (the formulation my model IS)
+  PROMPT: "Give me the power-systems framing of my problem. Explain economic
+  dispatch and unit commitment: the hourly demand-balance constraint
+  (sum of generation + discharge - charge + market = demand), merit-order /
+  marginal-cost dispatch, generation limits, and why dispatch is an LP but unit
+  commitment (on/off startup) is a MILP. My model is zonal with a shared battery
+  and continuous sizes — map my sizing+dispatch problem onto this standard form,
+  and explain what I lose by dropping the commitment binaries. One worked small
+  dispatch LP and 3 interview questions."
+
+4) Simplex vs Interior-Point (Barrier) + Crossover for large sparse LPs
+  PROMPT: "I have an LP with ~8760 time steps and thousands of constraints.
+  Explain, at a practitioner level (no KKT derivations), how to solve it fast:
+  primal/dual simplex vs the barrier/interior-point method, why barrier usually
+  wins on large sparse LPs, what crossover does and when to turn it off, and how
+  warm-starting helps when I re-solve per session. Tell me which Gurobi method
+  setting to pick and how to read the solve log. 3 interview questions."
+
+5) Time-coupled / Block (Staircase) LP Structure & Sparsity
+  PROMPT: "Explain the structure of a multi-period LP where SOC[t] couples hour t
+  to t+1. Show why this gives a block/staircase constraint matrix, why it's huge
+  but very sparse, and why that sparsity is what makes 8760-hour LPs tractable.
+  Cover how to exploit it (sparse formulation, avoiding dense big-M), and mention
+  when decomposition by time would ever help. Tie it to keeping my model fast
+  enough to run per user session. 3 interview questions."
+
+6) LP Degeneracy & Multiple Optima (why LP and heuristic can both be 'right')
+  PROMPT: "Teach me LP degeneracy and multiple optimal solutions, with energy
+  dispatch as the example. Explain why dispatch LPs are highly degenerate (many
+  equal-cost dispatches), what that means for solution uniqueness, and critically
+  why it makes shadow prices / duals non-unique. Then connect it to my pipeline:
+  when my exact LP and my fast heuristic report the same cost but different builds
+  or different marginal prices, how much of that 'deviation' is real sub-optimality
+  vs just alternate optima? How do I tell them apart? 3 interview questions."
+
+
+-------------------------------------------------------------------------------
+ MUST — LP foundations to build & defend the results
+-------------------------------------------------------------------------------
+• Strong Duality & Complementary Slackness
+  PROMPT: "Explain LP strong duality and complementary slackness to me as an ML person.
+  Build it up: primal vs dual, weak duality, when strong duality holds, and what
+  complementary slackness says (which constraints are tight vs which dual vars are
+  zero). Use an economic reading — the dual as marginal prices. Tie it to verifying a
+  solution is optimal without re-solving. Then give me a small cost-minimization
+  example with its dual solved by hand, plus how I'd use slackness to sanity-check a
+  solver's output. Finish with 3 common interview traps."
+
+• Sensitivity Analysis & Shadow Prices
+  PROMPT: "Teach me LP/MILP sensitivity analysis and shadow prices for a business-
+  translation setting. Define a shadow price (dual value), its valid range (RHS
+  ranging), reduced costs, and objective-coefficient ranging. My context: an energy
+  demand optimization where constraints are capacity, PUE, and hourly demand — explain
+  what a non-zero shadow price on a capacity constraint means to a non-technical
+  stakeholder, and that the shadow price on the hourly demand-balance constraint IS
+  the marginal cost of energy. One worked example + how I'd present it in a dashboard."
+
+• Numerical Stability (coefficient ranges, big-M, condition numbers)
+  PROMPT: "Teach me numerical stability in LP/MILP modeling. Cover: why wide coefficient
+  ranges (e.g. 1e6 vs 1e-3) cause trouble, matrix condition number, how bad scaling
+  leads to solver warnings or wrong answers, the dangers of large big-M values and how
+  to tighten or avoid them (indicator constraints), and tolerances (feasibility,
+  integrality). My context: an 8760-hour energy model mixing large demand/cost numbers
+  with small efficiency/PUE coefficients. Give concrete do's and don'ts for scaling my
+  model, a big-M example done well vs badly, and 3 interview questions."
+
+• Gurobi / CPLEX Internals (LP focus: method, presolve, IIS)
+  PROMPT: "Explain how commercial solvers (Gurobi/CPLEX) handle a large LP at the level
+  a senior user needs. Cover: presolve/reductions, the Method parameter (primal/dual
+  simplex vs barrier) and how to choose it, barrier+crossover, warm starts on re-solve,
+  and IIS for debugging infeasible models. My context: I run an exact energy-cost LP in
+  a pipeline per session and need it fast and debuggable. Give practical parameter-
+  tuning advice and 3 interview questions with answers."
+
+• LP Relaxation & MIP Gap  (now mainly for the heuristic-vs-exact deviation story)
+  PROMPT: "I'm an ML/data scientist comparing an exact LP against a fast heuristic on
+  the same energy-cost problem. Teach me optimality gap / bound reasoning: how an exact
+  optimum serves as the reference, how I quantify 'how far from optimal' my heuristic
+  is as a relative gap, and the subtlety that with alternate optima a nonzero cost gap
+  may be meaningful while a different-but-equal-cost build is not. (Also cover the MIP
+  gap in case I ever add integers.) One worked numerical example and 3 interview
+  questions with model answers."
+
+
+-------------------------------------------------------------------------------
+ PIPELINE CONTEXT — heuristic & uncertainty (not the LP build itself)
+-------------------------------------------------------------------------------
+• Metaheuristics: Simulated Annealing, Tabu Search, ALNS / Large Neighborhood Search
+  PROMPT: "Give me a practitioner's tour of metaheuristics for combinatorial
+  optimization: simulated annealing, tabu search, and ALNS / large neighborhood
+  search. For each: core idea, when it beats exact LP/MILP, key tuning knobs, failure
+  modes. My context: my fast 'heuristic' is actually Optuna TPE (Bayesian search) over
+  a dispatch sim — clearly contrast metaheuristics vs Bayesian/TPE hyperparameter
+  search so I can say which family I'm really using and why. 3 interview questions."
+
+• Two-Stage Stochastic Programming & L-Shaped Method
+  PROMPT: "Teach me two-stage stochastic programming for capacity planning under
+  uncertain demand. Define first-stage (here-and-now) vs second-stage (recourse)
+  decisions, scenarios and probabilities, the expected recourse function, and the
+  extensive form. Then explain the L-shaped method (Benders applied to it). My context:
+  sizing energy infrastructure when the 8760-hour demand profile is only estimated.
+  Minimal 2-scenario example + when this beats optimising on mean demand. 3 questions."
+
+• Robust Optimization (uncertainty sets, budgeted uncertainty)
+  PROMPT: "Explain robust optimization vs stochastic programming. Cover uncertainty
+  sets (box, ellipsoidal, budgeted/Bertsimas-Sim), the robust counterpart of an LP, the
+  price of robustness, and how a budget Gamma trades conservatism against cost. My
+  context: my demand profile is estimated with error and I want solutions that stay
+  feasible under worst-case demand without being absurdly conservative. Intuition over
+  heavy derivations, one worked budgeted example, when to choose robust over stochastic.
+  3 interview questions."
+
+• Branch and Cut  (only if I ever re-introduce integers / commitment binaries)
+  PROMPT: "Walk me through branch and cut for a MILP, assuming I know LP relaxation.
+  Cover branching, the branch-and-bound tree, pruning, cutting planes, node selection,
+  and how the global bound + incumbent produce the MIP gap. Context: I run pure LP now
+  but may add unit-commitment on/off binaries later — tell me what that would cost me in
+  solve time and why. Small illustrative tree + 3 interview questions."
+
+• Lagrangian Relaxation  (independent bound if integers return)
+  PROMPT: "Explain Lagrangian relaxation step by step: dualizing hard constraints with
+  multipliers, why the Lagrangian dual bounds the optimum, the duality gap, and the
+  subgradient method. Context: if I add integer/commitment constraints I'll want an
+  independent bound to judge heuristic quality. Which constraints to relax, a tiny
+  worked example with one subgradient step, and how it compares to the LP bound. 3 Qs."
+
+
+-------------------------------------------------------------------------------
+ SHOULD — strong supporting context for energy/capacity + sequential decisions
+-------------------------------------------------------------------------------
+• Polyhedral Theory & Basic Feasible Solutions (BFS)
+• Chance-Constrained Optimization (linearizing VaR / chance constraints)
+• MDPs (Value / Policy Iteration) — if dispatch / dynamic pricing enters scope
+• Column Generation & Branch-and-Price
+• Total Unimodularity (TUM)
+
+
+-------------------------------------------------------------------------------
+ NICE — awareness only, not deep
+-------------------------------------------------------------------------------
+• Decomposition: Benders & Dantzig-Wolfe
+• Max-Flow / Min-Cut Theorem
+• Minimum Cost Flow & Network Simplex
+• Queueing Theory & Little's Law
+
+
+-------------------------------------------------------------------------------
+ SKIP — low ROI for my role
+-------------------------------------------------------------------------------
+• Revised Simplex Implementation
+• Interior Point Method derivations (the KKT/path-following math — use barrier, don't derive it)
+• Farkas' Lemma proofs
+• Matroid Theory
+• Detailed Cut Lifting Mechanics
+• Cycle-Canceling
+• Jackson Networks & complex queueing proofs
+• Inventory Theory (Newsvendor / EOQ / (s,S))
+• GRASP / VNS variants
+===============================================================================

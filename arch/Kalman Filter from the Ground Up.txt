@@ -1,0 +1,475 @@
+===========================================================================
+THE KALMAN FILTER FROM THE GROUND UP  — math + intuition, ML/forecasting POV
+===========================================================================
+
+Audience: ML/DS person doing forecasting who keeps seeing "Kalman filter"
+mentioned. Goal: understand it well enough to USE it on time series, read a
+state-space forecasting library, and reason about it — not just recite formulas.
+
+Prereq that helps (already in your notes): the STATE-VARIABLE idea from
+"LP & Convexity Basics + Multi-Period State Coupling.txt" — x_t = f(x_{t-1}, ...)
+is a state that carries info forward. The Kalman filter is the same state idea,
+but PROBABILISTIC (Gaussian) and the state is HIDDEN (you only see noisy
+measurements of it). If you know that note's RNN / state-space analogy, you're
+already oriented.
+
+Other background assumed: Gaussian distributions, mean/variance, basic matrix
+algebra (multiply, transpose, inverse). That's it.
+
+
+===========================================================================
+PART 0 — THE ONE-SENTENCE IDEA
+===========================================================================
+
+You have a system whose true state you can't see directly; you have (a) a model
+of how the state evolves and (b) noisy measurements of it. The Kalman filter
+optimally FUSES "what my model predicts" with "what I just measured", weighting
+each by how much you trust it, and does so RECURSIVELY — one cheap update per
+time step, no need to store history.
+
+Two-line mental model:
+      new estimate = prediction + GAIN * (measurement - prediction)
+      the GAIN = (how uncertain is my prediction) / (prediction + measurement uncertainty)
+Trust the measurement more when your prediction is shaky; trust the prediction
+more when the sensor is noisy. The filter computes that trade-off optimally.
+
+
+===========================================================================
+PART 1 — THE PROBLEM IT SOLVES (intuition first)
+===========================================================================
+
+Imagine tracking the "true underlying demand level" of a time series. You can't
+observe it cleanly — every reading is corrupted by noise (metering error,
+weather blips, one-off events). You also have a belief about how the level
+moves hour to hour (e.g. "it drifts slowly"). Each new data point you face a
+question: is this jump real signal, or just noise? How much should I move my
+estimate?
+
+   - Trust every measurement fully -> your estimate is as noisy as the data.
+   - Ignore measurements, trust the model -> you drift away from reality.
+
+The Kalman filter is the principled answer: it maintains not just an ESTIMATE
+but an UNCERTAINTY (variance) about that estimate, and uses both uncertainties
+to decide the blend. It is the optimal linear estimator, and under Gaussian
+noise it's the optimal estimator period (equals the Bayesian posterior mean).
+
+
+===========================================================================
+PART 2 — THE STATE-SPACE MODEL (the two equations everything rests on)
+===========================================================================
+
+The Kalman filter assumes your system is described by a LINEAR-GAUSSIAN state-
+space model. Two equations:
+
+(1) PROCESS / TRANSITION model — how the hidden state evolves:
+
+      x_k = F x_{k-1} + B u_k + w_k ,      w_k ~ N(0, Q)
+
+(2) MEASUREMENT / OBSERVATION model — how what you SEE relates to the state:
+
+      z_k = H x_k + v_k ,                  v_k ~ N(0, R)
+
+Dictionary (dimensions matter — this is where people get lost):
+   x_k   (n x 1)  the HIDDEN STATE at time k (what you want to know). e.g.
+                  [level, trend] of a demand series.
+   z_k   (m x 1)  the MEASUREMENT you actually observe at time k.
+   F     (n x n)  state-transition matrix — your dynamics model.
+   B, u_k         optional control input (external known driver). Drop if none.
+   H     (m x n)  observation matrix — maps hidden state to measurement space.
+   w_k            PROCESS NOISE — randomness in the dynamics. Covariance Q (nxn).
+   v_k            MEASUREMENT NOISE — sensor/observation error. Covariance R (mxm).
+   Q     (n x n)  how much you DON'T trust your own dynamics model.
+   R     (m x m)  how much you DON'T trust your measurements.
+
+Everything is Gaussian, so a "belief about the state" is fully described by just
+a MEAN vector and a COVARIANCE matrix:
+   x_hat_{k|j}  = estimate of x_k given data up to time j
+   P_{k|j}      = covariance (uncertainty) of that estimate
+Notation: "k|k-1" = PREDICTED (prior, before seeing z_k);
+          "k|k"   = UPDATED  (posterior, after seeing z_k).
+
+KEY MODELING INSIGHT: F, H, Q, R ARE your modeling choices. Picking them is how
+you encode "it's a slow-drifting level" vs "level + linear trend" vs "seasonal."
+Part 7 shows the forecasting choices.
+
+
+===========================================================================
+PART 3 — THE RECURSION: PREDICT, THEN UPDATE
+===========================================================================
+
+Each time step does two phases. This is the whole algorithm.
+
+------------------------- PREDICT (time update) -------------------------
+Push the previous estimate forward through the dynamics (no new data yet):
+
+   x_hat_{k|k-1} = F x_hat_{k-1|k-1} + B u_k                       (3)
+   P_{k|k-1}     = F P_{k-1|k-1} F^T + Q                           (4)
+
+Read it:
+   (3) move the mean forward by the dynamics.
+   (4) move the uncertainty forward: F P F^T propagates existing uncertainty
+       through the dynamics, and + Q ADDS fresh uncertainty because the process
+       itself is noisy. Uncertainty ALWAYS GROWS during prediction (that's why
+       forecasts get less certain the further out you go).
+
+------------------------- UPDATE (measurement update) -------------------
+Now a measurement z_k arrives. Correct the prediction:
+
+   INNOVATION (surprise):          y_k = z_k - H x_hat_{k|k-1}      (5)
+   INNOVATION COVARIANCE:          S_k = H P_{k|k-1} H^T + R        (6)
+   KALMAN GAIN:                    K_k = P_{k|k-1} H^T S_k^{-1}     (7)
+   STATE UPDATE:      x_hat_{k|k}  = x_hat_{k|k-1} + K_k y_k        (8)
+   COVARIANCE UPDATE: P_{k|k}      = (I - K_k H) P_{k|k-1}          (9)
+
+Read it:
+   (5) the INNOVATION is "actual measurement minus what I predicted I'd see" —
+       the new information, the part you did NOT already expect.
+   (6) S_k is how uncertain that prediction-of-the-measurement was: prediction
+       uncertainty mapped into measurement space (H P H^T) plus sensor noise R.
+   (7) the GAIN is the crux (Part 4).
+   (8) nudge the estimate toward the measurement, scaled by the gain.
+   (9) seeing data REDUCES uncertainty: P shrinks in the update. Predict grows
+       it, update shrinks it — the filter breathes.
+
+That's it. Initialize with x_hat_{0|0}, P_{0|0}, then loop predict->update
+forever. O(n^3) per step (a matrix inverse), independent of history length —
+this recursiveness is the whole engineering appeal.
+
+
+===========================================================================
+PART 4 — THE KALMAN GAIN: the heart of it
+===========================================================================
+
+K_k = P_{k|k-1} H^T S_k^{-1}  =  (prediction uncertainty) /
+                                 (prediction uncertainty + measurement noise)
+(the division is the scalar intuition; in matrix form it's * S^{-1}).
+
+Behavior at the two extremes (scalar case H=1 makes it crystal clear,
+K = P_pred / (P_pred + R)):
+   - MEASUREMENT very noisy (R -> infinity):  K -> 0. Ignore the measurement,
+     keep the prediction. ("My sensor is garbage, trust the model.")
+   - PREDICTION very uncertain (P_pred -> infinity):  K -> 1. Jump to the
+     measurement, throw away the prediction. ("I have no idea, so whatever I
+     just measured is my best guess.")
+   - In between: a weighted blend, with weight set by RELATIVE uncertainty.
+
+So the gain is an automatic, self-tuning trust dial between model and data. You
+never hand-tune a smoothing constant — the filter derives it each step from the
+uncertainties you declared via Q and R. (And as Part 7 shows, at steady state
+this gain becomes exactly the alpha of exponential smoothing.)
+
+
+===========================================================================
+PART 5 — WHERE THE EQUATIONS COME FROM (two derivations)
+===========================================================================
+
+You can derive the exact same update two ways; pick whichever clicks.
+
+5.1 BAYESIAN view (cleanest for an ML person)
+---------------------------------------------
+Everything is Gaussian, and Gaussians are closed under the operations we need:
+   - PRIOR (from predict):   x_k ~ N(x_hat_{k|k-1}, P_{k|k-1})
+   - LIKELIHOOD (measurement): z_k | x_k ~ N(H x_k, R)
+   - POSTERIOR (Bayes):      p(x_k | z_k) proportional to prior * likelihood
+Product of two Gaussians is Gaussian, and its mean/covariance are EXACTLY
+equations (8)-(9). So the Kalman update IS Bayesian inference for a linear-
+Gaussian model: posterior = prior fused with likelihood. The Kalman gain is
+just the algebra of combining two Gaussian "opinions" weighted by their
+precisions (inverse variances). This is the same precision-weighting you'd see
+in Gaussian Bayesian linear regression.
+
+5.2 Least-squares / BLUE view (no Gaussian assumption needed)
+-------------------------------------------------------------
+Drop the Gaussian assumption. Ask only: among all estimators that are LINEAR in
+the measurement and UNBIASED, which minimizes the mean-squared error (the trace
+of P_{k|k})? Answer: the Kalman gain (7). So the KF is the Best Linear Unbiased
+Estimator (BLUE) regardless of distribution; Gaussianity only upgrades it from
+"best linear" to "best overall." You get optimality either way, which is why it
+is so widely trusted.
+
+(Derivation of the gain, scalar sketch: minimize P_post = (1-K)^2 P_pred + K^2 R
+over K; d/dK = -2(1-K)P_pred + 2K R = 0 -> K = P_pred/(P_pred+R). Matrix case is
+the same idea with traces and matrix calculus.)
+
+
+===========================================================================
+PART 6 — WORKED NUMERIC EXAMPLE (scalar, do it by hand)
+===========================================================================
+
+Estimate a true (roughly constant) demand level from noisy hourly readings.
+Scalar model: F=1 (level persists), H=1 (we measure the level directly),
+process noise Q=0 (assume truly constant for this demo), measurement noise
+variance R=4 (sensor std = 2). Diffuse initial guess: x0=0, P0=1000 (we know
+almost nothing).
+
+Scalar equations:
+   predict: x_pred = x_prev ;  P_pred = P_prev + Q
+   update:  K = P_pred/(P_pred+R)
+            x = x_pred + K*(z - x_pred)
+            P = (1-K)*P_pred
+
+Measurements arrive: z1=10, z2=12, z3=9.
+
+STEP 1  (z1 = 10):
+   predict: x_pred=0, P_pred=1000+0=1000
+   K = 1000/(1000+4) = 0.996
+   x = 0 + 0.996*(10-0) = 9.96
+   P = (1-0.996)*1000 = 3.98
+   -> almost jumped straight to the measurement (K~1) because we started
+      clueless (P huge). Makes sense.
+
+STEP 2  (z2 = 12):
+   predict: x_pred=9.96, P_pred=3.98
+   K = 3.98/(3.98+4) = 0.4987
+   x = 9.96 + 0.4987*(12-9.96) = 9.96 + 1.017 = 10.98
+   P = (1-0.4987)*3.98 = 1.995
+   -> now K~0.5: we trust the new reading about as much as our estimate, so we
+      move halfway. Uncertainty keeps dropping.
+
+STEP 3  (z3 = 9):
+   predict: x_pred=10.98, P_pred=1.995
+   K = 1.995/(1.995+4) = 0.3328
+   x = 10.98 + 0.3328*(9-10.98) = 10.98 - 0.659 = 10.32
+   P = (1-0.3328)*1.995 = 1.331
+   -> K~0.33 now: estimate is getting confident, so the low reading of 9 only
+      pulls it down modestly. The filter is "settling."
+
+Notice the gain SHRINKS each step (0.996 -> 0.499 -> 0.333). With Q=0 and a
+constant, the Kalman filter is EXACTLY the running sample mean: after n readings
+K_n = 1/(n+1)-style weighting and x converges to the average. That's a great
+sanity anchor: KF of a constant = recursive averaging.
+
+Now flip ONE knob to see dynamics: set Q>0 (say Q=1). Then P_pred = P_prev + Q
+never decays to ~0, so K settles at a positive floor and the filter stays
+PERMANENTLY responsive to new data — it "forgets" old data and tracks a moving
+level instead of averaging a constant. Q is literally the "how fast does the
+world change / how much should I forget" knob.
+
+
+===========================================================================
+PART 7 — KALMAN FILTERS FOR FORECASTING (your actual use case)
+===========================================================================
+
+State-space models are a backbone of modern time-series forecasting (they
+underlie statsmodels' UnobservedComponents, Facebook-style structural models,
+BSTS, and the exponential-smoothing family). The KF is the engine that runs
+them. Three things it gives a forecaster:
+
+7.1 Common model templates (just choices of F, H, Q, R)
+-------------------------------------------------------
+   - LOCAL LEVEL (random walk + noise): x = level; F=1, H=1.
+         level_k = level_{k-1} + w,  z_k = level_k + v.
+         Forecast = last filtered level, flat. KF steady state == SIMPLE
+         EXPONENTIAL SMOOTHING, with alpha = the steady-state Kalman gain. This
+         is the exact bridge between KF and the smoothing you already know.
+   - LOCAL LINEAR TREND: state = [level, slope].
+         F = [[1,1],[0,1]], H=[1,0]. Captures trend; forecast extends the slope.
+         Equivalent to Holt's linear method at steady state.
+   - SEASONAL / STRUCTURAL: stack level + trend + seasonal dummies into the
+     state vector; F encodes how each component evolves. This is a "structural
+     time series" — interpretable components, each with its own noise.
+
+7.2 Forecasting = iterate the PREDICT step with no updates
+----------------------------------------------------------
+To forecast h steps ahead, run the predict equations (3)-(4) forward h times
+WITHOUT any update (no future measurements exist). The mean gives the point
+forecast; P_{k+h|k} grows with each step and gives you a PRINCIPLED, WIDENING
+PREDICTION INTERVAL for free. That expanding uncertainty cone is a direct,
+honest output — not a bolt-on.
+
+7.3 Parameter estimation via the likelihood
+-------------------------------------------
+You usually don't know Q, R (and maybe F) exactly. The KF produces the
+innovations y_k and their covariances S_k, and the Gaussian log-likelihood of
+the data is a simple sum over them (the "prediction error decomposition"):
+      log L = -1/2 * sum_k [ log|S_k| + y_k^T S_k^{-1} y_k ] + const
+Maximize this over the unknown parameters (grad descent / EM) to FIT the model.
+So the KF isn't just a filter — it's how you compute the likelihood to train
+state-space forecasters. This is the piece most relevant if you're choosing
+between a KF/structural model and, say, an ML regressor.
+
+7.4 Why a forecaster might choose it
+------------------------------------
+   - Handles missing data naturally (just skip the update step — predict only).
+   - Online / streaming: O(1)-per-step updates, no refit on new data.
+   - Decomposes a series into interpretable level/trend/seasonal states.
+   - Gives calibrated uncertainty, not just point forecasts.
+   - Few parameters, works on short series where a deep model would overfit.
+Trade-off: it assumes LINEAR dynamics + GAUSSIAN noise. Nonlinear or heavy-
+tailed? See extensions.
+
+
+===========================================================================
+PART 8 — WHEN LINEAR-GAUSSIAN BREAKS: THE EXTENSIONS (map, not detail)
+===========================================================================
+
+   - EXTENDED KF (EKF): dynamics/measurement are NONLINEAR, x_k = f(x_{k-1}),
+     z_k = h(x_k). Linearize f, h via their Jacobians at the current estimate,
+     then apply the normal KF. Workhorse in robotics/GPS; can diverge if the
+     nonlinearity is strong or the Jacobian is a poor local fit.
+   - UNSCENTED KF (UKF): instead of linearizing, push a few deterministic
+     "sigma points" through the true nonlinear function and refit a Gaussian.
+     More accurate than EKF for strong nonlinearity, no Jacobians needed.
+   - PARTICLE FILTER: drop Gaussianity entirely; represent the belief with a
+     cloud of weighted samples. Handles arbitrary nonlinear/non-Gaussian/
+     multimodal problems; cost is many particles (Monte Carlo).
+   - KALMAN SMOOTHER (RTS): the filter uses only PAST data (x_{k|k}). If you're
+     doing offline analysis and want the best estimate at time k using ALL data
+     including the future (x_{k|T}), run a backward pass — the RTS smoother.
+     Use filter for real-time, smoother for retrospective/backtesting.
+
+Choosing: linear+Gaussian -> KF; mildly nonlinear -> EKF/UKF; nasty/multimodal
+-> particle filter; offline best-estimate -> add the smoother.
+
+
+===========================================================================
+PART 9 — HOW IT RELATES TO THINGS YOU ALREADY KNOW
+===========================================================================
+
+   - EXPONENTIAL SMOOTHING: the steady-state KF of a local-level model IS simple
+     exponential smoothing; Holt/Holt-Winters are KFs of trend/seasonal models.
+     KF is the general, uncertainty-aware parent.
+   - RECURSIVE LEAST SQUARES (RLS): KF with static state (F=I, Q=0) is exactly
+     RLS / online Bayesian linear regression — the Part 6 "running mean" result.
+   - RNN / STATE-SPACE NETS: same hidden-state recurrence h_k=f(h_{k-1},x_k),
+     but an RNN LEARNS the transition and is deterministic/nonlinear; the KF has
+     a KNOWN linear transition and tracks a full probability distribution
+     (mean+covariance), giving calibrated uncertainty an RNN doesn't by default.
+   - HIDDEN MARKOV MODELS: an HMM is the discrete-state cousin; the KF is the
+     continuous-Gaussian analog. The predict/update recursion mirrors the HMM
+     forward algorithm.
+   - BAYESIAN FILTERING: the KF is the exact closed-form solution of the general
+     Bayes filter (predict = Chapman-Kolmogorov, update = Bayes rule) in the
+     special case where everything is linear-Gaussian.
+
+
+===========================================================================
+PART 9.5 — WHERE KALMAN FILTERS ACTUALLY SHOW UP ACROSS ML & DS (a catalog)
+===========================================================================
+
+Part 9 was about conceptual EQUIVALENCES. This is the APPLICATION landscape —
+the concrete places you'll run into KFs (or should reach for one) in ML/DS, so
+you recognize them in papers, libraries, and job interviews.
+
+(A) TIME-SERIES FORECASTING & STRUCTURAL MODELS  (your case — Part 7).
+    statsmodels UnobservedComponents, BSTS, dynamic linear models (DLMs). The KF
+    runs the model and computes the likelihood for fitting. Most "state-space
+    forecasting" in a DS stack is a Kalman filter under the hood.
+
+(B) OBJECT TRACKING / COMPUTER VISION  (probably the #1 place ML engineers meet
+    it). Multi-object trackers SORT and DeepSORT use a Kalman filter per object
+    to predict bounding-box position/velocity between detections and smooth the
+    track; the detector gives noisy measurements, the KF fills gaps and handles
+    missed frames. Also point/feature tracking and radar/lidar tracking.
+
+(C) ROBOTICS, SLAM & SENSOR FUSION. EKF-SLAM for simultaneous localization and
+    mapping; fusing GPS + IMU + wheel odometry into one pose estimate (classic
+    sensor fusion). Drones, self-driving, AR headsets all lean on EKF/UKF here.
+
+(D) FINANCE & ECONOMETRICS. Time-varying parameter models: estimating a
+    DYNAMIC hedge ratio / rolling beta (CAPM beta that drifts), pairs-trading
+    spread estimation, dynamic factor models, stochastic-volatility filtering.
+    "Let the regression coefficient be a hidden state that random-walks" is a
+    very common KF pattern in quant DS.
+
+(E) REINFORCEMENT LEARNING & OPTIMAL CONTROL. LQG control = LQR (optimal control)
+    + Kalman filter (optimal state estimation), tied by the SEPARATION PRINCIPLE
+    (estimate the state, then control as if it were known). State estimation in
+    POMDPs, belief tracking, Kalman Temporal Differences, and some model-based
+    RL use KF machinery.
+
+(F) TRAINING NEURAL NETWORKS (the one people forget). The EXTENDED KALMAN FILTER
+    was a classic method for training NN weights: treat the weights as a hidden
+    state to be estimated, measurements are the targets — a second-order-ish
+    online learner. Related modern threads: Kalman-/natural-gradient-flavored
+    optimizers and online Bayesian weight updates. Conceptually, an RLS/KF view
+    sits behind several adaptive optimizers.
+
+(G) GAUSSIAN PROCESSES made FAST. A GP on 1-D (time) with certain kernels
+    (Matern, and others with a state-space representation) is EXACTLY a linear-
+    Gaussian state-space model. Running a Kalman filter+smoother does GP
+    regression in O(n) instead of the naive O(n^3) — a major scalability trick
+    for long time series. If you like GPs, this is the KF connection that pays.
+
+(H) DEEP STATE-SPACE / DEEP GENERATIVE MODELS. Deep Kalman Filters, the Kalman
+    Variational Autoencoder (KVAE), structured/variational inference networks,
+    and modern deep SSMs (the S4/Mamba family descends from state-space thinking)
+    all build on the predict/update + Gaussian-state idea, often with learned or
+    nonlinear transitions and amortized inference.
+
+(I) CAUSAL INFERENCE / IMPACT MEASUREMENT. Bayesian structural time series power
+    Google's CausalImpact: fit a state-space model on the pre-intervention
+    series, forecast the counterfactual, and attribute the gap to the
+    intervention. The KF is the inference engine.
+
+(J) DATA ASSIMILATION AT SCALE. The ENSEMBLE Kalman Filter (EnKF) fuses models
+    with observations in weather forecasting, climate, oceanography, epidemiology
+    — very high-dimensional states where you propagate an ensemble instead of a
+    full covariance. The large-scale cousin of the plain KF.
+
+(K) ANOMALY DETECTION & MONITORING. The INNOVATION y_k (measurement minus
+    prediction) and its covariance S_k give a normalized residual; a large
+    innovation = "the world surprised my model" = an anomaly/change-point signal.
+    Monitoring innovations (e.g. CUSUM on them) is a clean online detector, and
+    directly relevant to flagging bad data or regime shifts in a forecasting
+    pipeline.
+
+(L) ONLINE LEARNING / CONCEPT DRIFT. Track a slowly-changing parameter by making
+    it a random-walk state; the KF's Q knob sets how fast you "forget" old data
+    (Part 6). A principled alternative to a fixed sliding window or hand-tuned
+    decay.
+
+(M) PROBABILISTIC GRAPHICAL MODELS. The KF is Gaussian belief propagation /
+    message passing on a chain-structured factor graph — the continuous-Gaussian
+    analog of the HMM forward-backward algorithm. Useful framing if you come at
+    it from the PGM side.
+
+One-line map for recognizing it in the wild: whenever someone has a HIDDEN,
+EVOLVING quantity observed through NOISE and wants an online, uncertainty-aware
+estimate — tracking, fusion, drifting parameters, counterfactual series — a
+Kalman filter (or a nonlinear/ensemble/deep variant) is very likely the tool,
+named or not.
+
+
+===========================================================================
+PART 10 — THREE INTERVIEW QUESTIONS (with answers)
+===========================================================================
+
+Q1. "What does the Kalman gain actually represent, and what happens as
+     measurement noise R goes to zero vs infinity?"
+A1. It's the optimal weight on the new measurement's innovation — the ratio of
+    prediction uncertainty to total (prediction + measurement) uncertainty,
+    K = P_pred H^T (H P_pred H^T + R)^{-1}. As R->0 (perfect sensor) K-> (pseudo)
+    inverse of H, i.e. trust the measurement fully and effectively reset the
+    estimate to it; uncertainty collapses. As R->infinity (useless sensor) K->0,
+    ignore the measurement and keep the model prediction. It is a self-tuning
+    trust dial between model and data set by relative uncertainty.
+
+Q2. "Why does the covariance P grow in one phase and shrink in the other?"
+A2. Two phases. PREDICT propagates the old uncertainty through the dynamics and
+    ADDS process noise Q: P_pred = F P F^T + Q, so uncertainty GROWS — time
+    passing without data makes you less sure (this is what widens multi-step
+    forecasts). UPDATE incorporates a measurement: P_post = (I-KH)P_pred, which
+    SHRINKS it — information reduces uncertainty. A running filter alternates
+    grow/shrink; if it reaches equilibrium the two balance and P (and the gain)
+    converge to a steady state.
+
+Q3. "I give you a time series with gaps and I want forecasts with uncertainty
+     bands. How does a Kalman/state-space approach handle both, and what's its
+     core assumption?"
+A3. Missing data: on a gap, run ONLY the predict step (no measurement to update
+    with) — P simply grows across the gap, which is exactly correct (you're less
+    sure where there's no data). Forecasting: iterate predict h steps past the
+    last observation; the mean is the point forecast and the growing P_{k+h|k}
+    gives honest, widening prediction intervals directly. Core assumption:
+    linear dynamics with additive GAUSSIAN process and measurement noise (and
+    that you've specified F,H,Q,R, usually fitting Q,R by maximizing the
+    innovation-based likelihood). If dynamics are strongly nonlinear or noise is
+    heavy-tailed/multimodal, you move to EKF/UKF or a particle filter.
+
+Bonus Q: "Filter vs smoother?" The FILTER estimates x_k using data up to k
+(causal, real-time). The SMOOTHER (RTS) uses the WHOLE series including future
+points to refine each x_k (offline, lower variance). Use filter live, smoother
+for retrospective analysis/backtesting.
+
+===========================================================================
