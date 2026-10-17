@@ -1,0 +1,275 @@
+LAGRANGIAN RELAXATION — BOUNDS ON THE OPTIMAL
+Tailored to: an independent lower bound to judge a heuristic on an energy-cost MILP.
+
+================================================================
+PREREQUISITES (each concept once — read first if unfamiliar)
+================================================================
+- MILP: mixed-integer linear program. Linear objective/constraints, some
+  variables forced to be integer (e.g. 0/1 on/off). The integers make it
+  nonconvex and NP-hard; a pure LP (no integers) is convex and easy.
+
+- LP RELAXATION: take the MILP and DROP the integrality requirement (let x range
+  continuously, e.g. x in [0,1] instead of {0,1}). Easier to solve; its optimum
+  is a lower bound on the MILP optimum (minimization), because you enlarged the
+  feasible set.
+
+- FEASIBLE SET / FEASIBLE POINT: the set of x satisfying ALL constraints; one
+  such x is "feasible". Its objective value is an UPPER bound on z* (there may be
+  something cheaper, never anything the true optimum must beat).
+
+- LOWER vs UPPER BOUND (minimization): lower bound <= z* <= upper bound. A
+  relaxation gives a lower bound; any feasible solution (e.g. your heuristic)
+  gives an upper bound. The two bracket the optimum.
+
+- CONVEX SET / CONVEX HULL conv(X): a set is convex if the line segment between
+  any two of its points stays inside it. conv(X) is the smallest convex set
+  containing X — for integer points, the "filled-in" polytope spanning them.
+  Integer feasible sets are NOT convex; conv(X) is their convex closure.
+
+- CONVEX vs CONCAVE FUNCTION: convex curves up (bowl, has a global min), concave
+  curves down (dome, has a global max). A MIN of affine (linear) functions is
+  concave and PIECEWISE-LINEAR (straight segments meeting at kinks) — this is
+  exactly the shape of g(lambda) below, which is why maximizing it is tractable.
+
+- GRADIENT vs SUBGRADIENT: a smooth function has a gradient (slope) everywhere.
+  A concave function with KINKS is nondifferentiable there, but still has a
+  SUBGRADIENT: any slope of a line that touches the function and stays above it
+  (for concave). It generalizes the gradient so you can still "climb" a
+  nonsmooth function. (Subdifferential = the set of all such subgradients.)
+
+- WEAK vs STRONG DUALITY: every dual (relaxed) solution bounds the primal
+  (weak duality — always true). STRONG duality means the best dual bound exactly
+  equals the primal optimum (no gap) — guaranteed for convex problems, NOT for
+  MILPs in general.
+
+- DUALITY GAP vs OPTIMALITY GAP: duality gap = z* - z_LD (primal optimum minus
+  best dual bound; a property of the problem). Optimality gap = the bracket you
+  can actually certify, (upper bound - lower bound), e.g. (heuristic cost - g).
+  This file uses "gap" for both — context says which.
+
+- DECOMPOSITION / SEPARABILITY: if, after relaxing the coupling constraints, the
+  objective and remaining constraints split into independent blocks (per unit or
+  per hour), you can solve each block on its own. That is what makes the
+  Lagrangian subproblem cheap and parallelizable.
+
+- INTEGRALITY PROPERTY (of a subproblem): the subproblem has it when its LP
+  relaxation automatically yields integer optima for every lambda (no rounding
+  needed). When it holds, Lagrangian and LP bounds coincide; when it fails,
+  Lagrangian can be strictly tighter. (Expanded in section 7.)
+
+================================================================
+0. THE SETUP
+================================================================
+Your MILP (minimization):
+
+    z* = min  c^T x
+         s.t. A x >= b        (hard / coupling constraints)
+              x in X          (easy structure to KEEP)
+
+X holds the "easy" structure you want to keep (variable bounds, on/off logic,
+per-unit constraints, integrality). The constraints A x >= b are the
+complicating / coupling ones you will dualize.
+
+================================================================
+1. DUALIZE THE HARD CONSTRAINTS INTO THE OBJECTIVE
+================================================================
+Attach a multiplier vector lambda >= 0 (one per relaxed inequality) and move the
+constraint into the objective as a penalty:
+
+    L(x, lambda) = c^T x + lambda^T (b - A x)
+
+Sign rule (minimization):
+  - relaxed inequality  A x >= b  ->  lambda >= 0
+  - relaxed equality    A x  = b  ->  lambda free (any sign)
+  Get this wrong and the "bound" is not valid.
+
+The term lambda^T (b - A x) is a PRICE on violating the constraint: a positive
+residual (shortfall) is rewarded in the min, pushing the solver back toward
+feasibility.
+
+For a fixed lambda, the Lagrangian SUBPROBLEM is:
+
+    g(lambda) = min_{x in X} L(x, lambda)
+              = min_{x in X} (c - A^T lambda)^T x + lambda^T b
+
+X keeps its nice structure, so this is EASY — often it DECOMPOSES into per-unit
+or per-hour pieces solved independently or in closed form.
+
+================================================================
+2. WHY THE DUAL GIVES A BOUND (WEAK DUALITY)
+================================================================
+Take ANY feasible x (so A x >= b, i.e. b - A x <= 0) and any lambda >= 0.
+Then lambda^T (b - A x) <= 0, so:
+
+    L(x, lambda) = c^T x + [ lambda^T (b - A x) <= 0 ] <= c^T x
+
+Minimizing the left side over all x in X only lowers it:
+
+    g(lambda) = min_{x in X} L(x, lambda) <= L(x, lambda) <= c^T x
+    for every feasible x.
+
+In particular  g(lambda) <= z*.
+=> EVERY lambda >= 0 yields a valid lower bound; you don't need the best one.
+
+The tightest such bound is the LAGRANGIAN DUAL:
+
+    z_LD = max_{lambda >= 0} g(lambda) <= z*
+
+g(lambda) is CONCAVE and PIECEWISE-LINEAR (a min of affine functions), so
+maximizing it is a well-behaved concave problem — even though the original MILP
+is not.
+
+================================================================
+3. THE DUALITY GAP
+================================================================
+    gap = z* - z_LD >= 0
+
+Convex problem -> gap is zero (strong duality).
+MILP -> gap generally positive; the nonconvexity is where the gap lives.
+
+Known result:
+
+    z_LD = min { c^T x : A x >= b, x in conv(X) }
+
+i.e. the Lagrangian dual equals the original problem with X replaced by its
+CONVEX HULL. The gap is the slack between conv(X) and the true integer feasible
+set along the relaxed constraints.
+
+================================================================
+4. SUBGRADIENT METHOD FOR UPDATING lambda
+================================================================
+g is concave but NONDIFFERENTIABLE at kinks. The subgradient is clean:
+if x(lambda) solves the subproblem at lambda, then
+
+    s = b - A x(lambda)          (the constraint RESIDUAL at the minimizer)
+
+is a subgradient of g at lambda. Update (ascent, since we maximize):
+
+    lambda^{k+1} = [ lambda^k + t_k * s^k ]_+
+
+where [.]_+ projects onto lambda >= 0 (drop this for equality multipliers).
+
+Step size t_k:
+  - Diminishing, non-summable: t_k -> 0, sum t_k = infinity (e.g. t_k = a/(b+k))
+    -> convergence guaranteed.
+  - Polyak: t_k = gamma * (z_bestUB - g(lambda^k)) / ||s^k||^2,  0 < gamma <= 2
+    -> fast when you have a good upper bound (your heuristic cost!).
+
+NOT MONOTONE: g(lambda^{k+1}) can be worse than g(lambda^k). So TRACK THE BEST
+BOUND SEEN, max_k g(lambda^k) — that is your certified lower bound.
+
+================================================================
+5. WHICH CONSTRAINTS TO RELAX (ENERGY-COST MILP)
+================================================================
+Relax the few COUPLING constraints that destroy decomposability; keep everything
+that gives the subproblem structure.
+
+  Power/demand balance per hour (links all units at time t)   -> RELAX (strong)
+      Decouples the problem BY UNIT; lambda_t becomes an energy PRICE per hour.
+  Battery SoC recursion  SoC_{t+1} = SoC_t + ...  (links t to t+1) -> RELAX
+      Temporal coupling; relaxing decouples BY HOUR over the 8760 horizon.
+  Ramping limits (link consecutive hours)                      -> RELAX
+      Same temporal-coupling logic.
+  Shared reserve / capacity constraints                        -> RELAX
+      Couple units; dualize to decompose.
+  Per-unit bounds, min-up/min-down, on/off logic, integrality  -> KEEP
+      These ARE the useful structure X.
+
+Rule of thumb: relax a small number of LINKING rows so the remainder splits into
+many tiny independent subproblems you can solve fast (and in parallel — fits an
+async pipeline).
+
+================================================================
+6. TINY WORKED EXAMPLE + ONE SUBGRADIENT STEP
+================================================================
+Meet 1 unit of demand from a cheap source (cost 1) or expensive one (cost 3),
+each a 0/1 block:
+
+    min  x1 + 3 x2
+    s.t. x1 + x2 = 1        (demand, relax it)
+         x1, x2 in {0,1}
+
+True optimum: x1 = 1, x2 = 0, z* = 1.
+
+Dualize the equality (multiplier lambda FREE):
+
+    L = x1 + 3 x2 + lambda(1 - x1 - x2)
+      = lambda + (1 - lambda) x1 + (3 - lambda) x2
+
+Subproblem separates — each x_i in {0,1} picks the smaller term:
+
+    g(lambda) = lambda + min(0, 1 - lambda) + min(0, 3 - lambda)
+
+STEP 0: start lambda^0 = 0.
+    1 - lambda = 1 > 0  => x1 = 0;   3 - lambda = 3 > 0  => x2 = 0.
+    g(0) = 0 + 0 + 0 = 0.   valid bound: 0 <= z* = 1.
+    subgradient (residual): s = 1 - x1 - x2 = 1 - 0 - 0 = 1.
+
+ONE ASCENT STEP, t_0 = 1 (equality => no projection):
+    lambda^1 = 0 + 1 * 1 = 1
+
+STEP 1: lambda^1 = 1.
+    1 - lambda = 0 => x1 tie {0,1};   3 - lambda = 2 > 0 => x2 = 0.
+    g(1) = 1 + min(0,0) + min(0,2) = 1 + 0 + 0 = 1.
+
+Bound jumped 0 -> 1 = z*. One step closed it; duality gap = 0 here.
+
+(Full dual: g(lambda) = lambda for lambda <= 1, flat at 1 for 1 <= lambda <= 3,
+then 4 - lambda. Max = 1 on lambda in [1,3]. z_LD = 1.)
+
+================================================================
+7. HOW THIS BOUND COMPARES TO THE LP RELAXATION BOUND
+================================================================
+LP relaxation (drop integrality, x in [0,1]): x1 = 1, x2 = 0, bound = 1.
+So here z_LP = z_LD = z* = 1. Not a coincidence. General ordering:
+
+    z_LP  <=  z_LD  <=  z*
+
+The Lagrangian dual is ALWAYS at least as tight as the LP relaxation (Geoffrion).
+They are EQUAL iff the Lagrangian subproblem has the INTEGRALITY PROPERTY — its
+LP relaxation is naturally integral for every lambda (as in the toy example,
+where the box subproblem is trivially 0/1).
+
+To BEAT LP: relax constraints so the remaining subproblem is a structured-but-hard
+integer set whose convex hull is strictly tighter than its LP box (e.g. keep a
+knapsack / min-up-down structure in X rather than relaxing it). Then z_LD > z_LP
+and you get a sharper certificate.
+
+USING IT TO JUDGE YOUR HEURISTIC (the payoff):
+  - Heuristic feasible cost z_H is an UPPER bound on z*.
+  - Any lambda gives g(lambda), a LOWER bound.
+  - Certified optimality gap:  (z_H - g(lambda)) / g(lambda)   (or vs best g seen).
+  If that is, say, 2%, you have PROVEN the fast heuristic is within 2% of global
+  optimum — no LP solve required, and you can stop the subgradient run early since
+  EVERY iterate's bound is valid. Cleaner/cheaper than a full parallel MILP/LP,
+  and complements it.
+
+================================================================
+8. THREE INTERVIEW QUESTIONS
+================================================================
+1. "When does the Lagrangian dual give a strictly tighter bound than the LP
+   relaxation, and when are they equal?"
+   -> Name the INTEGRALITY PROPERTY of the subproblem: equal when the
+      subproblem's LP relaxation is naturally integral for all lambda; strictly
+      tighter when conv(X) cuts off fractional LP points, i.e. when you KEEP hard
+      integer structure in X.
+
+2. "The subgradient method isn't monotone — g(lambda^{k+1}) can drop below
+   g(lambda^k). Which number do you report as your bound, and what step-size rule
+   guarantees convergence?"
+   -> Report max_k g(lambda^k) (best valid bound). Convergence needs diminishing
+      non-summable steps (t_k -> 0, sum t_k = infinity); Polyak step is faster
+      using a known upper bound.
+
+3. "Your subproblem minimizer violates the relaxed constraint. Is the current
+   g(lambda) still a valid lower bound? Why, and how does that violation feed the
+   update?"
+   -> Yes: weak duality holds for ANY dual-feasible lambda regardless of primal
+      feasibility of x(lambda). The violation IS the subgradient s = b - A x(lambda),
+      which drives lambda up on binding/violated rows to penalize them next
+      iteration.
+
+Follow-up to be ready for: "Once the dual converges, how do you recover a
+feasible primal solution?" -> the subproblem solution is usually infeasible, so
+you need a LAGRANGIAN HEURISTIC (repair/rounding using the lambda prices) —
+often exactly where your existing heuristic plugs in.
